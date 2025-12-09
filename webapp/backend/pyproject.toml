@@ -1,0 +1,52 @@
+[project]
+name = "gz-snapchat-backend"
+version = "0.1.0"
+description = "FastAPI backend for Snapchat data extraction and analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.0.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "aiosqlite>=0.19.0",  # for SQLite support
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
+    "paramiko>=3.4.0",  # for SSH connections
+    "protobuf>=3.10.0,<5.0.0",  # for protobuf parsing
+    "pillow>=10.1.0",  # for image processing
+    "pandas>=2.1.0",  # for data processing
+    "filetype>=1.2.0",  # for file type detection
+    "numpy>=1.24.0",  # for numerical operations
+    "apscheduler>=3.10.0",  # for background task scheduling
+    "httpx>=0.24.0",  # for HTTP requests (ntfy notifications)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.11.0",
+    "ruff>=0.1.6",
+    "mypy>=1.7.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true

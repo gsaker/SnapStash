@@ -1,0 +1,23 @@
+services:
+  backend:
+    container_name: snapstash-backend
+    build: ./backend
+    ports:
+      - "8067:8067"
+    volumes:
+      - "./data:/app/data"
+    environment:
+      - DATABASE_URL=sqlite:///data/gz_snapchat.db
+
+  frontend:
+    container_name: snapstash-frontend
+    build: ./frontend
+    ports:
+      - "3067:3067"
+    environment:
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=8067
+      - PORT=3067
+    depends_on:
+      - backend
+
