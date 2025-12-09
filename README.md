@@ -19,10 +19,10 @@ SnapStash is a comprehensive tool for extracting, saving, and viewing Snapchat d
 *   **Mobile App:** Native iOS companion app built with SwiftUI.
 
 ## What is saved (and what isn't)
-✓ **All** Chat messages
-✓ **Recieved** snaps (image and video)
-✓ **Recieved** voice messages
-✓ **Recieved** Chat media (Sent images and video)
+✓ **All** Chat messages.  
+✓ **Recieved** snaps (image and video).  
+✓ **Recieved** voice messages.  
+✓ **Recieved** Chat media (Sent images and video).  
 
 Note that due to technical limitations, this app **CANNOT SAVE** snaps/media that you send yourself to others, however text chats are saved. 
 
