@@ -7,6 +7,7 @@ import { formatTimestamp, formatFileSize, getInitials, decodeHtmlEntities } from
 import { api } from '../utils/api';
 import { EnhancedAudioPlayer } from './EnhancedAudioPlayer';
 import { EnhancedVideoPlayer } from './EnhancedVideoPlayer';
+import Avatar from './Avatar';
 
 interface MessageBubbleProps {
   messages: Message[];
@@ -256,8 +257,8 @@ export default function MessageBubble({ messages, isOwn, showSender = true, curr
       <div className={`flex max-w-xs lg:max-w-md ${isOwn ? 'flex-row-reverse' : 'flex-row'} items-start space-x-2`}>
         {/* Avatar */}
         {showSender && !isOwn && (
-          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center text-white text-xs font-semibold mt-5">
-            {senderInfo.initials}
+          <div className="flex-shrink-0 mt-5">
+            <Avatar user={firstMessage.sender} name={senderInfo.name} size="sm" />
           </div>
         )}
 

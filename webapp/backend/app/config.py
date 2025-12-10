@@ -22,6 +22,16 @@ class Settings(BaseSettings):
         description="Skip database initialization on startup"
     )
     
+    # Extraction mode configuration
+    extraction_mode: str = Field(
+        default="ssh",
+        description="Extraction mode: 'ssh' for live device extraction or 'local' for pre-extracted databases"
+    )
+    extracted_dbs_path: Optional[str] = Field(
+        default=None,
+        description="Path to pre-extracted Snapchat databases (main.db, arroyo.db, cache_controller.db)"
+    )
+
     # SSH connection settings
     ssh_host: Optional[str] = Field(
         default=None,
@@ -132,6 +142,12 @@ class Settings(BaseSettings):
             },
             "skip_db_init": {
                 "env": ["SKIP_DB_INIT"]
+            },
+            "extraction_mode": {
+                "env": ["EXTRACTION_MODE"]
+            },
+            "extracted_dbs_path": {
+                "env": ["EXTRACTED_DBS_PATH"]
             },
             "ssh_host": {
                 "env": ["SSH_HOST"]

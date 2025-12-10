@@ -1,0 +1,30 @@
+# Docker Compose override for pre-extracted database mode
+#
+# Usage:
+#   SNAPCHAT_DBS_PATH=/path/to/extracted/dbs docker compose -f docker-compose.yml -f docker-compose.extracted.yml up
+#
+# Expected directory structure for extracted DBs:
+#   /path/to/extracted/dbs/
+#     main.db              - Friends/user data from com.snapchat.android/databases/
+#     arroyo.db            - Messages data from com.snapchat.android/databases/
+#     cache_controller.db  - Cache mappings (optional)
+#     media/               - Extracted media files (optional)
+#
+# To trigger parsing after startup:
+#   curl -X POST http://localhost:8067/api/ingest/parse-local
+#
+# Or with a custom path:
+#   curl -X POST http://localhost:8067/api/ingest/parse-local \
+#     -H "Content-Type: application/json" \
+#     -d '{"extracted_dbs_path": "/app/extracted_dbs"}'
+
+services:
+  backend:
+    volumes:
+      - "./data:/app/data"
+      - "${SNAPCHAT_DBS_PATH:-./extracted_dbs}:/app/extracted_dbs:ro"
+    environment:
+      - DATABASE_URL=sqlite:///data/gz_snapchat.db
+      - EXTRACTION_MODE=local
+      - EXTRACTED_DBS_PATH=/app/extracted_dbs
+      - DISABLE_INGEST_LOOP=true

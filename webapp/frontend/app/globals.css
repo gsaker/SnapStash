@@ -25,7 +25,7 @@
   }
 }
 
-/* Custom scrollbar for webkit browsers */
+/* Custom scrollbar for webkit browsers - Light mode */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }
@@ -41,4 +41,42 @@
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
+}
+
+/* Themed scrollbars - applied globally */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+.dark * {
+  scrollbar-color: #4b5563 transparent;
 }

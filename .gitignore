@@ -2,7 +2,9 @@
 generated
 data
 webapp/data
+webapp/test_dbs
 __pycache__
 node_modules
 .DS_Store
 migrate_old_data.py
+tmp

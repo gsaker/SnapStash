@@ -26,6 +26,11 @@ class IngestRequest(BaseModel):
     timeout: int = 300
 
 
+class LocalIngestRequest(BaseModel):
+    """Request model for local database ingestion (pre-extracted databases)."""
+    extracted_dbs_path: Optional[str] = None  # Override config path if provided
+
+
 class IngestResponse(BaseModel):
     run_id: int
     status: str
@@ -117,6 +122,121 @@ async def trigger_ingest(
         run_id=ingest_run.id,
         status="pending",
         message="Ingest run started successfully",
+        started_at=ingest_run.started_at
+    )
+
+
+async def run_local_ingest_process(
+    request: LocalIngestRequest,
+    run_id: int
+):
+    """Background task to run local database ingestion using the centralized service."""
+    logger.info(f"Starting local API ingest process for run_id {run_id}")
+
+    # Create a new database session for the background task
+    db_session = SessionLocal()
+
+    try:
+        # Create the centralized ingestion service
+        ingestion_service = IngestionService(db_session)
+
+        # Execute the local ingestion
+        result = await ingestion_service.run_local_ingestion(
+            run_id,
+            extracted_dbs_path=request.extracted_dbs_path
+        )
+        logger.info(f"Local API ingestion completed: {result}")
+
+    except Exception as e:
+        logger.error(f"Local API ingestion failed for run {run_id}: {e}")
+        raise
+    finally:
+        db_session.close()
+
+
+@router.post("/parse-local", response_model=IngestResponse)
+async def trigger_local_ingest(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    request: LocalIngestRequest = LocalIngestRequest()
+):
+    """
+    Trigger parsing of pre-extracted Snapchat databases.
+
+    This endpoint is used when EXTRACTION_MODE=local or when you want to
+    manually parse databases that were extracted via adb or other tools.
+
+    The expected directory structure is:
+    - /path/to/dbs/main.db
+    - /path/to/dbs/arroyo.db
+    - /path/to/dbs/cache_controller.db (optional)
+    - /path/to/dbs/media/ (optional directory with media files)
+    """
+    from ..config import get_settings
+    from ..services.local_extractor import LocalExtractor
+
+    storage_service = StorageService(db)
+    settings = get_settings()
+
+    # Check if another run is in progress
+    latest_runs = storage_service.get_latest_ingest_runs(limit=1)
+    if latest_runs and latest_runs[0].status in ["pending", "in_progress", "running"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Another ingest run is already in progress"
+        )
+
+    # Determine the source path
+    dbs_path = request.extracted_dbs_path or settings.extracted_dbs_path
+    if not dbs_path:
+        raise HTTPException(
+            status_code=400,
+            detail="No extracted databases path configured. Set EXTRACTED_DBS_PATH or provide extracted_dbs_path in request."
+        )
+
+    # Validate source databases exist
+    local_extractor = LocalExtractor(dbs_path)
+    is_valid, missing = local_extractor.validate_source_databases()
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required databases in {dbs_path}: {', '.join(missing)}"
+        )
+
+    # Get source info for logging
+    source_info = local_extractor.get_source_info()
+    logger.info(f"Local database source validated: {source_info}")
+
+    # Create a virtual device for local extraction
+    device = storage_service.upsert_device({
+        "name": f"Local Extraction ({dbs_path})",
+        "ssh_host": "localhost",
+        "ssh_user": "local",
+        "ssh_port": 0,
+        "is_active": True
+    })
+    db.commit()
+
+    # Create new ingest run
+    ingest_run = storage_service.create_ingest_run({
+        "device_id": device.id,
+        "extraction_type": "local",
+        "status": "pending",
+        "extraction_settings": {
+            "extraction_mode": "local",
+            "extracted_dbs_path": dbs_path,
+            "source_info": source_info
+        }
+    })
+    db.commit()
+
+    # Add background task
+    background_tasks.add_task(run_local_ingest_process, request, ingest_run.id)
+
+    return IngestResponse(
+        run_id=ingest_run.id,
+        status="pending",
+        message="Local database ingest started successfully",
         started_at=ingest_run.started_at
     )
 

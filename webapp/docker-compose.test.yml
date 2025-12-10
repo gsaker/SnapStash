@@ -1,0 +1,29 @@
+# Docker Compose for testing with pre-extracted databases from test_dbs/
+#
+# Usage:
+#   cd webapp
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up --build
+#
+# This will:
+#   1. Start the backend and frontend services
+#   2. Mount the test_dbs/ directory containing extracted Snapchat databases
+#   3. Disable the automatic SSH ingestion loop
+#   4. Set EXTRACTION_MODE=local for local database parsing
+#
+# After startup, trigger parsing with:
+#   curl -X POST http://localhost:8067/api/ingest/parse-local
+#
+# Or view the API docs at:
+#   http://localhost:8067/docs
+
+services:
+  backend:
+    volumes:
+      - "./data:/app/data"
+      - "./test_dbs:/app/extracted_dbs:ro"
+    environment:
+      - DATABASE_URL=sqlite:///data/gz_snapchat.db
+      - EXTRACTION_MODE=local
+      - EXTRACTED_DBS_PATH=/app/extracted_dbs
+      - DISABLE_INGEST_LOOP=true
+      - LOG_LEVEL=DEBUG

@@ -122,6 +122,8 @@ class MessageExtractor:
                     'sender_id': sender_id,
                     'username': friend_info.get('username', ''),
                     'display_name': friend_info.get('display_name', ''),
+                    'bitmoji_avatar_id': friend_info.get('bitmoji_avatar_id', ''),
+                    'bitmoji_selfie_id': friend_info.get('bitmoji_selfie_id', ''),
                     'creation_timestamp': creation_time,
                     'creation_timestamp_ms': creation_ts,  # Keep original for sorting
                     'read_timestamp': read_time,

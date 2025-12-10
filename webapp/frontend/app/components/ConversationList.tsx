@@ -7,6 +7,7 @@ import { Conversation, ConversationsResponse } from '../types/api';
 import { api } from '../utils/api';
 import { formatTimestamp, getInitials, truncateText } from '../utils/helpers';
 import { useTheme } from '../contexts/ThemeContext';
+import Avatar from './Avatar';
 
 interface ConversationListProps {
   selectedConversationId: string | null;
@@ -59,11 +60,43 @@ export default function ConversationList({
   };
 
   const getConversationAvatar = (conversation: Conversation) => {
+    // For group chats with participant avatars
+    if (conversation.is_group_chat && conversation.avatar?.participants) {
+      return (
+        <Avatar
+          isGroupChat={true}
+          groupParticipants={conversation.avatar.participants}
+          name={conversation.group_name}
+          size="lg"
+        />
+      );
+    }
+
+    // For DMs with avatar info, use the other person's Bitmoji
+    if (!conversation.is_group_chat && conversation.avatar) {
+      return (
+        <Avatar
+          user={{
+            id: conversation.avatar.user_id || '',
+            username: '',
+            display_name: conversation.avatar.display_name || '',
+            bitmoji_avatar_id: null,
+            bitmoji_selfie_id: null,
+            bitmoji_url: conversation.avatar.bitmoji_url,
+            created_at: '',
+            updated_at: ''
+          }}
+          size="lg"
+        />
+      );
+    }
+
+    // Fallback to initials
     const initials = getInitials(conversation.group_name || 'Unknown');
-    const bgColor = conversation.is_group_chat 
-      ? 'bg-blue-500' 
+    const bgColor = conversation.is_group_chat
+      ? 'bg-blue-500'
       : 'bg-green-500';
-    
+
     return (
       <div className={`w-12 h-12 rounded-full ${bgColor} flex items-center justify-center text-white font-semibold text-sm`}>
         {initials}
@@ -76,7 +109,7 @@ export default function ConversationList({
   }
 
   return (
-    <div className={`${isMobile ? 'fixed inset-0 z-50 bg-white dark:bg-gray-900' : 'w-80'} flex flex-col border-r border-gray-200 dark:border-gray-700 h-full`}>
+    <div className={`${isMobile ? 'fixed inset-0 z-50 bg-white dark:bg-gray-900' : 'w-80'} flex flex-col border-r border-gray-200 dark:border-gray-700 h-full overflow-hidden`}>
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <div className="flex items-center justify-between mb-4">
@@ -129,7 +162,7 @@ export default function ConversationList({
       </div>
 
       {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-900">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-white dark:bg-gray-900">
         {loading && (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500"></div>

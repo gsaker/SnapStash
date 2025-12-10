@@ -6,6 +6,7 @@ import { Conversation, Message, MessagesResponse, ConversationWithMessages } fro
 import { api } from '../utils/api';
 import { getInitials, formatTimestamp } from '../utils/helpers';
 import MessageBubble from './MessageBubble';
+import Avatar from './Avatar';
 
 interface ChatViewProps {
   conversation: Conversation | null;
@@ -243,11 +244,43 @@ export default function ChatView({ conversation, onBack, currentUserId, isMobile
   }
 
   const getConversationAvatar = () => {
+    // For group chats with participant avatars
+    if (conversation.is_group_chat && conversation.avatar?.participants) {
+      return (
+        <Avatar
+          isGroupChat={true}
+          groupParticipants={conversation.avatar.participants}
+          name={conversation.group_name}
+          size="md"
+        />
+      );
+    }
+
+    // For DMs with avatar info, use the other person's Bitmoji
+    if (!conversation.is_group_chat && conversation.avatar) {
+      return (
+        <Avatar
+          user={{
+            id: conversation.avatar.user_id || '',
+            username: '',
+            display_name: conversation.avatar.display_name || '',
+            bitmoji_avatar_id: null,
+            bitmoji_selfie_id: null,
+            bitmoji_url: conversation.avatar.bitmoji_url,
+            created_at: '',
+            updated_at: ''
+          }}
+          size="md"
+        />
+      );
+    }
+
+    // Fallback to initials
     const initials = getInitials(conversation.group_name || 'Unknown');
-    const bgColor = conversation.is_group_chat 
-      ? 'bg-blue-500' 
+    const bgColor = conversation.is_group_chat
+      ? 'bg-blue-500'
       : 'bg-green-500';
-    
+
     return (
       <div className={`w-10 h-10 rounded-full ${bgColor} flex items-center justify-center text-white font-semibold text-sm flex-shrink-0`}>
         {initials}
