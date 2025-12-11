@@ -1,3 +1,4 @@
+import html
 from datetime import datetime
 from typing import List, Optional
 
@@ -8,6 +9,13 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..services.storage import StorageService
 from ..schemas import MessageResponse, PaginationMeta
+
+
+def decode_html_entities(text: Optional[str]) -> Optional[str]:
+    """Decode HTML entities like &#128573; to actual characters."""
+    if text is None:
+        return None
+    return html.unescape(text)
 
 router = APIRouter(prefix="/api/messages", tags=["messages"])
 
@@ -89,7 +97,8 @@ async def get_messages(
                 "sender": {
                     "id": msg.sender.id,
                     "username": msg.sender.username,
-                    "display_name": msg.sender.display_name
+                    "display_name": decode_html_entities(msg.sender.display_name),
+                    "bitmoji_url": msg.sender.bitmoji_url
                 } if msg.sender else None,
                 "media_asset": {
                     "id": msg.media_asset.id,
@@ -164,7 +173,8 @@ async def get_message(
         response_data["sender"] = {
             "id": message.sender.id,
             "username": message.sender.username,
-            "display_name": message.sender.display_name
+            "display_name": decode_html_entities(message.sender.display_name),
+            "bitmoji_url": message.sender.bitmoji_url
         }
     
     return response_data

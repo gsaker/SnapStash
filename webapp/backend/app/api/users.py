@@ -89,6 +89,9 @@ async def get_current_user(db: Session = Depends(get_db)):
         "id": current_user.id,
         "username": current_user.username,
         "display_name": current_user.display_name,
+        "bitmoji_avatar_id": current_user.bitmoji_avatar_id,
+        "bitmoji_selfie_id": current_user.bitmoji_selfie_id,
+        "bitmoji_url": current_user.bitmoji_url,
         "created_at": current_user.created_at,
         "updated_at": current_user.updated_at,
         "is_current_user": True
@@ -119,6 +122,9 @@ async def get_users(
                 id=user.id,
                 username=user.username,
                 display_name=user.display_name,
+                bitmoji_avatar_id=user.bitmoji_avatar_id,
+                bitmoji_selfie_id=user.bitmoji_selfie_id,
+                bitmoji_url=user.bitmoji_url,
                 created_at=user.created_at,
                 updated_at=user.updated_at
             )
@@ -151,6 +157,9 @@ async def get_user(
         "id": user.id,
         "username": user.username,
         "display_name": user.display_name,
+        "bitmoji_avatar_id": user.bitmoji_avatar_id,
+        "bitmoji_selfie_id": user.bitmoji_selfie_id,
+        "bitmoji_url": user.bitmoji_url,
         "created_at": user.created_at,
         "updated_at": user.updated_at
     }

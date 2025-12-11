@@ -2,8 +2,24 @@ export interface User {
   id: string;
   username: string;
   display_name: string;
+  bitmoji_avatar_id: string | null;
+  bitmoji_selfie_id: string | null;
+  bitmoji_url: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserAvatar {
+  user_id: string | null;
+  display_name: string | null;
+  bitmoji_url: string | null;
+}
+
+export interface ConversationAvatar {
+  user_id: string | null;
+  display_name: string | null;
+  bitmoji_url: string | null;
+  participants: UserAvatar[] | null;  // For group chats
 }
 
 export interface Conversation {
@@ -14,6 +30,7 @@ export interface Conversation {
   last_message_at: string;
   created_at: string;
   updated_at: string;
+  avatar: ConversationAvatar | null;
 }
 
 export interface MediaAsset {

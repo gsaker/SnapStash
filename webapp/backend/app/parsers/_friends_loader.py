@@ -29,13 +29,13 @@ class FriendsLoader:
             cursor = conn.cursor()
             
             query = """
-                SELECT userId, username, displayName 
+                SELECT userId, username, displayName, bitmojiAvatarId, bitmojiSelfieId
                 FROM Friend
             """
-            
+
             for row in cursor.execute(query):
-                user_id, username, display_name = row
-                
+                user_id, username, display_name, bitmoji_avatar_id, bitmoji_selfie_id = row
+
                 # Apply emoji encoding to display name (same as original)
                 encoded_display_name = ''
                 if display_name:
@@ -46,10 +46,12 @@ class FriendsLoader:
                             encoded_display_name += tmp
                     except:
                         encoded_display_name = display_name or ''
-                
+
                 friends[user_id] = {
                     'username': username or '',
-                    'display_name': encoded_display_name
+                    'display_name': encoded_display_name,
+                    'bitmoji_avatar_id': bitmoji_avatar_id or '',
+                    'bitmoji_selfie_id': bitmoji_selfie_id or ''
                 }
             
             conn.close()

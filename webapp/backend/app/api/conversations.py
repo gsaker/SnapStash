@@ -1,3 +1,4 @@
+import html
 from datetime import datetime
 from typing import List, Optional
 
@@ -9,6 +10,13 @@ from ..database import get_db
 from ..services.storage import StorageService
 from ..schemas import ConversationResponse, PaginationMeta, LastMessagePreview
 from ..config import get_runtime_dm_exclude_name
+
+
+def decode_html_entities(text: Optional[str]) -> Optional[str]:
+    """Decode HTML entities like &#128573; to actual characters."""
+    if text is None:
+        return None
+    return html.unescape(text)
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -47,6 +55,22 @@ def apply_dm_exclude_name(conversation_name: Optional[str], is_group_chat: bool)
         return conversation_name
 
 
+class UserAvatar(BaseModel):
+    """Single user avatar info"""
+    user_id: Optional[str] = None
+    display_name: Optional[str] = None
+    bitmoji_url: Optional[str] = None
+
+
+class ConversationAvatar(BaseModel):
+    """Avatar info for conversation display"""
+    user_id: Optional[str] = None
+    display_name: Optional[str] = None
+    bitmoji_url: Optional[str] = None
+    # For group chats: multiple participant avatars
+    participants: Optional[List[UserAvatar]] = None
+
+
 class ConversationWithPreview(BaseModel):
     id: str
     group_name: Optional[str] = None
@@ -56,6 +80,7 @@ class ConversationWithPreview(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_message_preview: Optional[LastMessagePreview] = None
+    avatar: Optional[ConversationAvatar] = None  # For DMs: the other person's avatar
 
 
 class ConversationListResponse(BaseModel):
@@ -116,16 +141,53 @@ async def get_conversations(
                 timestamp=msg.creation_timestamp
             )
         
+        # Get avatar for conversation
+        avatar = None
+        participants = storage_service.get_conversation_participants(conv.id)
+        exclude_name = get_runtime_dm_exclude_name()
+
+        if conv.is_group_chat:
+            # For group chats, get first 3 participants' avatars (excluding current user)
+            participant_avatars = []
+            for user, _ in participants:
+                if exclude_name and (user.display_name == exclude_name or user.username == exclude_name):
+                    continue
+                participant_avatars.append(UserAvatar(
+                    user_id=user.id,
+                    display_name=decode_html_entities(user.display_name),
+                    bitmoji_url=user.bitmoji_url
+                ))
+                if len(participant_avatars) >= 3:
+                    break
+            if participant_avatars:
+                avatar = ConversationAvatar(
+                    participants=participant_avatars
+                )
+        else:
+            # For DMs, find the other participant (not the current user)
+            for user, _ in participants:
+                # Skip the current user (matched by display_name or username)
+                if exclude_name and (user.display_name == exclude_name or user.username == exclude_name):
+                    continue
+                # Found the other participant
+                avatar = ConversationAvatar(
+                    user_id=user.id,
+                    display_name=decode_html_entities(user.display_name),
+                    bitmoji_url=user.bitmoji_url
+                )
+                break
+
         conversation_responses.append(
             ConversationWithPreview(
                 id=conv.id,
-                group_name=apply_dm_exclude_name(conv.group_name, conv.is_group_chat),
+                group_name=decode_html_entities(apply_dm_exclude_name(conv.group_name, conv.is_group_chat)),
                 is_group_chat=conv.is_group_chat,
                 participant_count=conv.participant_count,
                 last_message_at=conv.last_message_at,
                 created_at=conv.created_at,
                 updated_at=conv.updated_at,
-                last_message_preview=last_message_preview
+                last_message_preview=last_message_preview,
+                avatar=avatar
             )
         )
     

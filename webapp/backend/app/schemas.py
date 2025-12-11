@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 class UserBase(BaseModel):
     username: str
     display_name: Optional[str] = None
+    bitmoji_avatar_id: Optional[str] = None
+    bitmoji_selfie_id: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -16,12 +18,15 @@ class UserCreate(UserBase):
 class UserUpdate(UserBase):
     username: Optional[str] = None
     display_name: Optional[str] = None
+    bitmoji_avatar_id: Optional[str] = None
+    bitmoji_selfie_id: Optional[str] = None
 
 
 class User(UserBase):
     id: str
     created_at: datetime
     updated_at: datetime
+    bitmoji_url: Optional[str] = None
 
     class Config:
         from_attributes = True

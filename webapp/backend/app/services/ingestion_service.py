@@ -22,6 +22,7 @@ from ..parsers.snapchat_unified import SnapchatUnifiedParser
 from ..services.ssh_pull import SSHPullService
 from ..services.storage import StorageService
 from .data_processor import DataProcessorService
+from .local_extractor import LocalExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -551,3 +552,160 @@ class IngestionService:
                 "links_created": 0,
                 "errors": [error_msg]
             }
+
+    async def run_local_ingestion(self, run_id: int, extracted_dbs_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Execute ingestion workflow using locally mounted pre-extracted databases.
+
+        This method is used when EXTRACTION_MODE=local, allowing users to parse
+        databases that were already extracted from a device (e.g., via manual
+        adb pull or other extraction tools).
+
+        Args:
+            run_id: The ID of the IngestRun record to update
+            extracted_dbs_path: Optional override for the extracted databases path
+
+        Returns:
+            Dictionary with ingestion results including counts and any errors
+
+        Raises:
+            Exception: If any critical step fails
+        """
+        logger.info(f"Starting local ingestion process for run_id {run_id}")
+        settings = get_settings()
+        dbs_path = extracted_dbs_path or settings.extracted_dbs_path
+
+        try:
+            # Update status to running
+            self.storage_service.update_ingest_run(run_id, status="running")
+            self.db_session.commit()
+
+            # Initialize local extractor
+            local_extractor = LocalExtractor(dbs_path)
+
+            # Validate source databases
+            is_valid, missing = local_extractor.validate_source_databases()
+            if not is_valid:
+                raise Exception(f"Missing required databases: {', '.join(missing)}")
+
+            # Log source info
+            source_info = local_extractor.get_source_info()
+            logger.info(f"Local database source: {source_info}")
+
+            # Create temporary directory for working copy
+            with tempfile.TemporaryDirectory() as temp_dir:
+                extract_dir = os.path.join(temp_dir, "extraction")
+                os.makedirs(extract_dir, exist_ok=True)
+                logger.info(f"Created extraction directory: {extract_dir}")
+
+                # Copy databases to temp directory
+                copy_result = local_extractor.copy_databases_to_data_dir(extract_dir)
+                if not copy_result["success"]:
+                    raise Exception(f"Failed to copy databases: {copy_result['errors']}")
+
+                logger.info(f"Copied databases: {copy_result['databases_copied']}")
+
+                # Initialize parser
+                parser = SnapchatUnifiedParser(extract_dir)
+                current_timestamp = parser.get_latest_source_timestamp()
+
+                # Load friends data
+                logger.info("Loading friends data...")
+                parser.load_friends_data()
+
+                # Extract messages
+                logger.info("Extracting messages...")
+                messages = parser.extract_messages()
+
+                # Extract conversations
+                parser.extract_conversations()
+                conversations = parser.get_all_conversations()
+                valid_conversations = [c for c in conversations if c.get('is_group_chat') or c.get('participants')]
+                logger.info(f"Found {len(conversations)} total conversations ({len(valid_conversations)} with valid metadata)")
+
+                # Scan for media files (if media was included in extraction)
+                if copy_result.get("media_copied"):
+                    parser.scan_media_files()
+
+                # Link media to messages
+                unified_messages = parser.link_media_to_messages()
+
+                # Log summary
+                text_messages = sum(1 for m in unified_messages if m.get('text'))
+                media_messages_count = sum(1 for m in unified_messages if m.get('media_asset'))
+                logger.info(f"=== Local Parsing Summary ===")
+                logger.info(f"Total unified messages: {len(unified_messages)}")
+                logger.info(f"Text messages: {text_messages}")
+                logger.info(f"Media messages: {media_messages_count}")
+
+                # Extract media assets
+                media_assets = []
+                for unified_msg in unified_messages:
+                    if unified_msg.get('media_asset'):
+                        media_assets.append(unified_msg['media_asset'])
+
+                messages = unified_messages
+                logger.info(f"Processing results: {len(messages)} messages, {len(media_assets)} media assets")
+
+                # Copy media files to permanent storage if present
+                if media_assets:
+                    logger.info(f"Copying {len(media_assets)} media files to permanent storage...")
+                    media_assets = self._copy_media_to_permanent_storage(extract_dir, media_assets, run_id)
+                    self._update_message_media_paths(messages, media_assets)
+
+                # Process and store results
+                processor = DataProcessorService(self.db_session)
+                processor_results = processor.process_parser_results(messages, media_assets, run_id)
+                logger.info(f"Processor results: {processor_results}")
+
+                # Process conversations
+                if valid_conversations:
+                    conversation_results = self._process_conversations(valid_conversations)
+                    logger.info(f"Conversation processing results: {conversation_results}")
+
+                # Populate DM names
+                logger.info("Populating DM names for individual conversations...")
+                from ..parsers._conversation_parser import ConversationParser
+                conversation_parser = ConversationParser(Path(extract_dir))
+                dm_results = conversation_parser.populate_dm_names(self.storage_service)
+                logger.info(f"DM name population results: {dm_results}")
+
+                # Post-ingestion linking cleanup
+                logger.info("Running post-ingestion message-media linking cleanup...")
+                linking_results = self._link_orphaned_messages_and_media()
+                logger.info(f"Post-ingestion linking results: {linking_results}")
+
+                # Update final run status
+                self.storage_service.update_ingest_run(
+                    run_id,
+                    status="completed",
+                    messages_extracted=processor_results["messages_processed"],
+                    media_files_extracted=processor_results["media_assets_processed"],
+                    parsing_errors=len(processor_results.get("errors", [])),
+                    error_details=processor_results.get("errors", []),
+                    extraction_settings={
+                        'source_latest_timestamp': current_timestamp,
+                        'extraction_mode': 'local',
+                        'source_path': dbs_path
+                    }
+                )
+
+            self.db_session.commit()
+
+            return {
+                "success": True,
+                "messages_processed": processor_results["messages_processed"],
+                "media_assets_processed": processor_results["media_assets_processed"],
+                "errors": processor_results.get("errors", [])
+            }
+
+        except Exception as e:
+            logger.error(f"Local ingestion run {run_id} failed: {e}")
+            self.storage_service.update_ingest_run(
+                run_id,
+                status="failed",
+                error_message=str(e),
+                error_details={"exception": str(e)}
+            )
+            self.db_session.commit()
+            raise

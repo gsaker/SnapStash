@@ -66,7 +66,9 @@ class DataProcessorService:
                         unique_users[sender_id] = {
                             "id": sender_id,
                             "username": msg.get("username", ""),
-                            "display_name": msg.get("display_name", "")
+                            "display_name": msg.get("display_name", ""),
+                            "bitmoji_avatar_id": msg.get("bitmoji_avatar_id", "") or None,
+                            "bitmoji_selfie_id": msg.get("bitmoji_selfie_id", "") or None
                         }
             
             # Process users

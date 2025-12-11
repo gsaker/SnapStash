@@ -21,18 +21,30 @@ from .database import Base
 
 class User(Base):
     """Snapchat friend/user model"""
-    
+
     __tablename__ = "users"
 
     id = Column(String, primary_key=True)  # sender_id from Snapchat
     username = Column(String, unique=True, nullable=False)
     display_name = Column(String, nullable=True)
+
+    # Bitmoji avatar fields
+    bitmoji_avatar_id = Column(String, nullable=True)  # e.g., "99570132460_9-s5"
+    bitmoji_selfie_id = Column(String, nullable=True)  # e.g., "10226021"
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
     sent_messages = relationship("Message", foreign_keys="Message.sender_id", back_populates="sender")
     media_assets = relationship("MediaAsset", back_populates="sender")
+
+    @property
+    def bitmoji_url(self) -> Optional[str]:
+        """Construct Bitmoji URL from avatar_id"""
+        if self.bitmoji_avatar_id:
+            return f"https://sdk.bitmoji.com/me/sticker/{self.bitmoji_avatar_id}"
+        return None
 
 
 class Conversation(Base):
