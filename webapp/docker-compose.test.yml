@@ -22,7 +22,7 @@ services:
       - "./data:/app/data"
       - "./test_dbs:/app/extracted_dbs:ro"
     environment:
-      - DATABASE_URL=sqlite:///data/gz_snapchat.db
+      - DATABASE_URL=sqlite:///data/snapstash.db
       - EXTRACTION_MODE=local
       - EXTRACTED_DBS_PATH=/app/extracted_dbs
       - DISABLE_INGEST_LOOP=true

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     
     # Database configuration
     database_url: str = Field(
-        default="sqlite:///./gz_snapchat.db",
+        default="sqlite:///./snapstash.db",
         description="Database URL for SQLite database"
     )
     skip_db_init: bool = Field(

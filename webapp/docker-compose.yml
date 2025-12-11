@@ -7,7 +7,7 @@ services:
     volumes:
       - "./data:/app/data"
     environment:
-      - DATABASE_URL=sqlite:///data/gz_snapchat.db
+      - DATABASE_URL=sqlite:///data/snapstash.db
 
   frontend:
     container_name: snapstash-frontend
