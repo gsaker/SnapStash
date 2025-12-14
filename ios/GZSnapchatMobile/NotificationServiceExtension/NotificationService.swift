@@ -41,7 +41,12 @@ class NotificationService: UNNotificationServiceExtension {
             return nil
         }()
 
-        print("ℹ️ image_url=\(imageUrlString ?? "nil") sender_avatar_url=\(senderAvatarUrlString ?? "nil") apiBaseURL=\(apiBaseURL ?? "nil")")
+        let groupParticipants: [[String: Any]]? = {
+            if let value = userInfo["group_participants"] as? [[String: Any]] { return value }
+            return nil
+        }()
+
+        print("ℹ️ image_url=\(imageUrlString ?? "nil") sender_avatar_url=\(senderAvatarUrlString ?? "nil") group_participants=\(groupParticipants?.count ?? 0) apiBaseURL=\(apiBaseURL ?? "nil")")
 
         func resolveURL(_ value: String) -> URL? {
             if let absolute = URL(string: value), absolute.scheme != nil {
@@ -63,7 +68,19 @@ class NotificationService: UNNotificationServiceExtension {
             print("⚠️ Unable to construct sender avatar URL. sender_avatar_url=\(senderAvatarUrlString ?? "nil") apiBaseURL=\(apiBaseURL ?? "nil")")
         }
 
-        if imageURL == nil && avatarURL == nil {
+        // Parse group participant URLs
+        var groupAvatarURLs: [URL] = []
+        if let participants = groupParticipants {
+            for participant in participants.prefix(3) {
+                if let urlString = participant["bitmoji_url"] as? String,
+                   let url = resolveURL(urlString) {
+                    groupAvatarURLs.append(url)
+                }
+            }
+            print("ℹ️ Parsed \(groupAvatarURLs.count) group participant avatar URLs")
+        }
+
+        if imageURL == nil && avatarURL == nil && groupAvatarURLs.isEmpty {
             contentHandler(bestAttemptContent)
             return
         }
@@ -82,7 +99,17 @@ class NotificationService: UNNotificationServiceExtension {
             }
         }
 
-        if let avatarURL {
+        // Handle group chat icons or individual avatar
+        if !groupAvatarURLs.isEmpty {
+            // Download all group participant avatars and generate composite icon
+            group.enter()
+            print("📥 Downloading \(groupAvatarURLs.count) group participant avatars")
+            downloadGroupAvatars(from: groupAvatarURLs) { compositeData in
+                avatarImageData = compositeData
+                print("📥 Group icon generation result: \(compositeData != nil ? "success (\(compositeData!.count) bytes)" : "failed")")
+                group.leave()
+            }
+        } else if let avatarURL {
             group.enter()
             print("📥 Downloading sender avatar from: \(avatarURL)")
             downloadAttachment(from: avatarURL, identifier: "avatar") { attachment in
@@ -108,6 +135,12 @@ class NotificationService: UNNotificationServiceExtension {
                 print("✅ Attached \(attachments.count) item(s) to notification")
             }
 
+            // Set thread identifier for grouping (works for all notification types)
+            if let conversationId = userInfo["conversation_id"] as? String {
+                bestAttemptContent.threadIdentifier = conversationId
+                print("✅ Set base threadIdentifier to: \(conversationId)")
+            }
+
             let finalContent: UNNotificationContent = {
                 guard #available(iOS 15.0, *) else {
                     print("⚠️ Communication notifications require iOS 15+")
@@ -129,9 +162,17 @@ class NotificationService: UNNotificationServiceExtension {
 
                 let handle = INPersonHandle(value: handleValue, type: .unknown)
 
-                // Add yellow background to Bitmoji avatar
-                let avatarWithBackground = self.addCircularBackground(to: avatarImageData, color: UIColor(red: 1.0, green: 0.988, blue: 0.0, alpha: 1.0))
-                let image = INImage(imageData: avatarWithBackground)
+                // Add yellow background to Bitmoji avatar (only for individual DM avatars, not group icons)
+                // Group icons already have yellow circles behind each participant
+                let finalAvatarData: Data
+                if !groupAvatarURLs.isEmpty {
+                    // Group icon - use as-is (already has yellow circles for each participant)
+                    finalAvatarData = avatarImageData
+                } else {
+                    // Individual DM avatar - add rounded rectangle yellow background
+                    finalAvatarData = self.addCircularBackground(to: avatarImageData, color: UIColor(red: 1.0, green: 0.988, blue: 0.0, alpha: 1.0))
+                }
+                let image = INImage(imageData: finalAvatarData)
 
                 let sender = INPerson(
                     personHandle: handle,
@@ -160,6 +201,11 @@ class NotificationService: UNNotificationServiceExtension {
                     let mutable = (updated.mutableCopy() as? UNMutableNotificationContent) ?? bestAttemptContent
                     if !attachments.isEmpty {
                         mutable.attachments = attachments
+                    }
+                    // Ensure thread identifier is set for proper grouping
+                    if let conversationId = conversationId {
+                        mutable.threadIdentifier = conversationId
+                        print("✅ Set threadIdentifier to: \(conversationId)")
                     }
                     return mutable
                 } catch {
@@ -272,5 +318,128 @@ class NotificationService: UNNotificationServiceExtension {
         }
 
         return resultImage.pngData() ?? imageData
+    }
+
+    private func downloadGroupAvatars(from urls: [URL], completion: @escaping (Data?) -> Void) {
+        let group = DispatchGroup()
+        var downloadedImages: [UIImage] = []
+        var imageLock = NSLock()
+
+        for url in urls {
+            group.enter()
+            downloadData(from: url) { data in
+                defer { group.leave() }
+                guard let data = data, let image = UIImage(data: data) else {
+                    print("❌ Failed to download/decode group avatar from: \(url)")
+                    return
+                }
+                imageLock.lock()
+                downloadedImages.append(image)
+                imageLock.unlock()
+            }
+        }
+
+        group.notify(queue: .global()) {
+            guard !downloadedImages.isEmpty else {
+                print("❌ No group avatars downloaded successfully")
+                completion(nil)
+                return
+            }
+
+            // Generate composite icon
+            let compositeImage = self.generateGroupIcon(from: downloadedImages, size: 300)
+            completion(compositeImage?.pngData())
+        }
+    }
+
+    private func generateGroupIcon(from images: [UIImage], size: CGFloat) -> UIImage? {
+        guard !images.isEmpty else { return nil }
+
+        let count = min(images.count, 3)
+        let avatarSize = size * 0.6
+        let adjustedAvatarSize = count == 3 ? avatarSize * 0.85 : avatarSize
+
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+        return renderer.image { context in
+            // Transparent background
+            UIColor.clear.setFill()
+            context.fill(CGRect(origin: .zero, size: CGSize(width: size, height: size)))
+
+            // Calculate positions
+            let positions = calculatePositions(count: count, canvasSize: size, avatarSize: adjustedAvatarSize)
+
+            // Draw each avatar
+            for (index, image) in images.prefix(count).enumerated() {
+                guard index < positions.count else { break }
+                let position = positions[index]
+
+                // Create circular Bitmoji with yellow background
+                let circularImage = createCircularBitmoji(image: image, size: adjustedAvatarSize)
+                circularImage.draw(at: position)
+            }
+        }
+    }
+
+    private func calculatePositions(count: Int, canvasSize: CGFloat, avatarSize: CGFloat) -> [CGPoint] {
+        let center = canvasSize / 2
+
+        switch count {
+        case 1:
+            // Centered
+            let x = center - avatarSize / 2
+            let y = center - avatarSize / 2
+            return [CGPoint(x: x, y: y)]
+
+        case 2:
+            // Top-left and bottom-right
+            let offset = canvasSize * 0.15
+            return [
+                CGPoint(x: center - avatarSize / 2 - offset, y: center - avatarSize / 2 - offset),
+                CGPoint(x: center - avatarSize / 2 + offset, y: center - avatarSize / 2 + offset)
+            ]
+
+        default: // 3
+            // Top-left, top-right, bottom-center
+            let xOffset = canvasSize * 0.18
+            let yOffset = canvasSize * 0.12
+            let bottomYOffset = canvasSize * 0.18
+
+            return [
+                CGPoint(x: center - avatarSize / 2 - xOffset, y: center - avatarSize / 2 - yOffset),
+                CGPoint(x: center - avatarSize / 2 + xOffset, y: center - avatarSize / 2 - yOffset),
+                CGPoint(x: center - avatarSize / 2, y: center - avatarSize / 2 + bottomYOffset)
+            ]
+        }
+    }
+
+    private func createCircularBitmoji(image: UIImage, size: CGFloat) -> UIImage {
+        let targetSize = CGSize(width: size, height: size)
+
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        return renderer.image { context in
+            let rect = CGRect(origin: .zero, size: targetSize)
+
+            // Draw yellow circular background (Snapchat yellow)
+            let yellowColor = UIColor(red: 1.0, green: 0.988, blue: 0.0, alpha: 1.0)
+            yellowColor.setFill()
+            context.cgContext.fillEllipse(in: rect)
+
+            // Clip to circle for Bitmoji
+            context.cgContext.addEllipse(in: rect)
+            context.cgContext.clip()
+
+            // Draw Bitmoji image on top of yellow background
+            image.draw(in: rect, blendMode: .normal, alpha: 1.0)
+
+            // Reset clip
+            context.cgContext.resetClip()
+
+            // Draw white stroke around the circle (matches main UI)
+            let strokeWidth: CGFloat = 2.0
+            let strokeRect = rect.insetBy(dx: strokeWidth / 2, dy: strokeWidth / 2)
+            UIColor.white.setStroke()
+            context.cgContext.setLineWidth(strokeWidth)
+            context.cgContext.strokeEllipse(in: strokeRect)
+        }
     }
 }

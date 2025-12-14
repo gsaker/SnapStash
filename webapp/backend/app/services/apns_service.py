@@ -122,6 +122,7 @@ class APNsService:
         sender_avatar_url: Optional[str] = None,
         sender_id: Optional[str] = None,
         category: Optional[str] = None,
+        group_participants: Optional[List[dict]] = None,
     ) -> Dict[str, Any]:
         """
         Send a push notification to iOS devices.
@@ -169,6 +170,8 @@ class APNsService:
                 custom_data["sender_avatar_url"] = sender_avatar_url
             if sender_id:
                 custom_data["sender_id"] = sender_id
+            if group_participants:
+                custom_data["group_participants"] = group_participants
 
             success_count = 0
             failed_tokens = []
@@ -198,13 +201,14 @@ class APNsService:
                     if category:
                         aps_payload["category"] = category
 
-                    # Enable mutable-content so the Notification Service Extension can attach images
-                    if image_url or sender_avatar_url:
+                    # Enable mutable-content so the Notification Service Extension can attach images or render group icons
+                    if image_url or sender_avatar_url or group_participants:
                         aps_payload["mutable-content"] = 1
                         logger.info(
-                            "APNs rich payload enabled: image_url=%s sender_avatar_url=%s conversation_id=%s",
+                            "APNs rich payload enabled: image_url=%s sender_avatar_url=%s group_participants=%s conversation_id=%s",
                             image_url,
                             sender_avatar_url,
+                            len(group_participants) if group_participants else 0,
                             conversation_id,
                         )
 
@@ -277,6 +281,8 @@ class APNsService:
         conversation_id: Optional[str] = None,
         sender_avatar_url: Optional[str] = None,
         sender_id: Optional[str] = None,
+        group_participants: Optional[List[dict]] = None,
+        group_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Send notification for a new text message.
@@ -285,6 +291,7 @@ class APNsService:
             sender_username: Username of the message sender
             text: Message text content
             conversation_id: ID of the conversation for deep linking
+            group_name: Group chat name (if applicable)
 
         Returns:
             Result dict from send_notification
@@ -295,16 +302,20 @@ class APNsService:
             logger.debug(f"Skipping APNs notification for excluded sender: {sender_username}")
             return {"success_count": 0, "skipped": True}
 
+        # Build title: "Sender - Group Name" for groups, just "Sender" for DMs
+        title = f"{sender_username} - {group_name}" if group_name else sender_username
+
         # Truncate body for notification
         body = text[:200] + "..." if len(text) > 200 else text
 
         return await self.send_notification(
-            title=sender_username,
+            title=title,
             body=body,
             conversation_id=conversation_id,
             sender_avatar_url=sender_avatar_url,
             sender_id=sender_id,
-            category="message" if sender_avatar_url else None,
+            category="message" if (sender_avatar_url or group_participants) else None,
+            group_participants=group_participants,
         )
 
     async def send_media_message_notification(
@@ -316,6 +327,8 @@ class APNsService:
         media_url: Optional[str] = None,
         sender_avatar_url: Optional[str] = None,
         sender_id: Optional[str] = None,
+        group_participants: Optional[List[dict]] = None,
+        group_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Send notification for a new media message.
@@ -326,6 +339,7 @@ class APNsService:
             conversation_id: ID of the conversation for deep linking
             text: Optional text accompanying the media
             media_url: Optional URL to the media file for rich notifications
+            group_name: Group chat name (if applicable)
 
         Returns:
             Result dict from send_notification
@@ -335,6 +349,9 @@ class APNsService:
         if exclude_name and sender_username == exclude_name:
             logger.debug(f"Skipping APNs notification for excluded sender: {sender_username}")
             return {"success_count": 0, "skipped": True}
+
+        # Build title: "Sender - Group Name" for groups, just "Sender" for DMs
+        title = f"{sender_username} - {group_name}" if group_name else sender_username
 
         # Build body
         if text:
@@ -352,13 +369,14 @@ class APNsService:
         )
 
         return await self.send_notification(
-            title=sender_username,
+            title=title,
             body=body,
             conversation_id=conversation_id,
             image_url=image_url,
             sender_avatar_url=sender_avatar_url,
             sender_id=sender_id,
-            category="message" if sender_avatar_url else None,
+            category="message" if (sender_avatar_url or group_participants) else None,
+            group_participants=group_participants,
         )
 
 

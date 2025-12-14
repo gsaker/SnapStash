@@ -7,7 +7,7 @@ Also integrates with APNs for native iOS push notifications.
 import logging
 import os
 import base64
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import httpx
 from sqlalchemy.orm import Session
 
@@ -53,6 +53,43 @@ class NotificationService:
             return user.bitmoji_url
         except Exception as e:
             logger.error(f"Failed to resolve sender avatar URL for {sender_id}: {e}")
+            return None
+
+    def _get_group_info(self, conversation_id: Optional[str]) -> Optional[dict]:
+        """Get group chat info including participants and group name"""
+        if not conversation_id or not self.db:
+            return None
+        try:
+            from ..models import Conversation
+            from .storage import StorageService
+
+            # Check if it's a group chat
+            conv = self.db.query(Conversation).filter(Conversation.id == conversation_id).first()
+            if not conv or not conv.is_group_chat:
+                return None
+
+            # Get participants
+            storage_service = StorageService(self.db)
+            participants = storage_service.get_conversation_participants(conversation_id)
+
+            # Build list of participant data (max 3)
+            participant_data = []
+            for user, _ in participants:
+                if user.bitmoji_url:
+                    participant_data.append({
+                        "user_id": user.id,
+                        "display_name": user.display_name,
+                        "bitmoji_url": user.bitmoji_url
+                    })
+                if len(participant_data) >= 3:
+                    break
+
+            return {
+                "participants": participant_data if participant_data else None,
+                "group_name": conv.group_name
+            } if participant_data else None
+        except Exception as e:
+            logger.error(f"Failed to get group info for {conversation_id}: {e}")
             return None
 
     def _is_enabled(self) -> bool:
@@ -302,12 +339,17 @@ class NotificationService:
         try:
             apns = self._get_apns_service()
             sender_avatar_url = self._get_sender_avatar_url(sender_id)
+            group_info = self._get_group_info(conversation_id)
+            group_participants = group_info["participants"] if group_info else None
+            group_name = group_info["group_name"] if group_info else None
             await apns.send_text_message_notification(
                 sender_username=sender_username,
                 text=text,
                 conversation_id=conversation_id,
                 sender_avatar_url=sender_avatar_url,
                 sender_id=sender_id,
+                group_participants=group_participants,
+                group_name=group_name,
             )
         except Exception as e:
             logger.warning(f"APNs notification failed: {e}")
@@ -366,6 +408,9 @@ class NotificationService:
         try:
             apns = self._get_apns_service()
             sender_avatar_url = self._get_sender_avatar_url(sender_id)
+            group_info = self._get_group_info(conversation_id)
+            group_participants = group_info["participants"] if group_info else None
+            group_name = group_info["group_name"] if group_info else None
 
             # Build media URL for rich notifications (images only)
             normalized_media_type = (media_type or "").lower()
@@ -399,6 +444,8 @@ class NotificationService:
                 media_url=media_url,
                 sender_avatar_url=sender_avatar_url,
                 sender_id=sender_id,
+                group_participants=group_participants,
+                group_name=group_name,
             )
         except Exception as e:
             logger.warning(f"APNs notification failed: {e}")
