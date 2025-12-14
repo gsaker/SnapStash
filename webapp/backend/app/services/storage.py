@@ -466,6 +466,8 @@ class StorageService:
 
             new_asset = MediaAsset(**media_data)
             self.db.add(new_asset)
+            # Ensure ID is assigned so callers can reference it immediately (e.g. for push payloads)
+            self.db.flush()
             logger.debug(f"Created new media asset: {media_data.get('original_filename', 'unknown')}")
             return new_asset, True  # Return True for newly created asset
 

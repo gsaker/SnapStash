@@ -12,6 +12,9 @@ struct User: Codable, Identifiable {
     let id: String
     let username: String
     let displayName: String
+    let bitmojiAvatarId: String?
+    let bitmojiSelfieId: String?
+    let bitmojiUrl: String?
     let createdAt: String?
     let updatedAt: String?
 
@@ -19,8 +22,41 @@ struct User: Codable, Identifiable {
         case id
         case username
         case displayName = "display_name"
+        case bitmojiAvatarId = "bitmoji_avatar_id"
+        case bitmojiSelfieId = "bitmoji_selfie_id"
+        case bitmojiUrl = "bitmoji_url"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// MARK: - UserAvatar (for conversation participants)
+struct UserAvatar: Codable, Identifiable {
+    let userId: String?
+    let displayName: String?
+    let bitmojiUrl: String?
+    
+    var id: String { userId ?? UUID().uuidString }
+    
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case displayName = "display_name"
+        case bitmojiUrl = "bitmoji_url"
+    }
+}
+
+// MARK: - ConversationAvatar
+struct ConversationAvatar: Codable {
+    let userId: String?
+    let displayName: String?
+    let bitmojiUrl: String?
+    let participants: [UserAvatar]?  // For group chats
+    
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case displayName = "display_name"
+        case bitmojiUrl = "bitmoji_url"
+        case participants
     }
 }
 
@@ -51,6 +87,7 @@ struct Conversation: Codable, Identifiable, Hashable {
     let createdAt: String
     let updatedAt: String
     let lastMessagePreview: LastMessagePreview?
+    let avatar: ConversationAvatar?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -61,6 +98,7 @@ struct Conversation: Codable, Identifiable, Hashable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case lastMessagePreview = "last_message_preview"
+        case avatar
     }
     
     // Hashable conformance - use id for equality

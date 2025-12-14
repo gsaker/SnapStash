@@ -2146,7 +2146,8 @@ struct QuickLookSheet: UIViewControllerRepresentable {
             lastMessageAt: ISO8601DateFormatter().string(from: Date()),
             createdAt: ISO8601DateFormatter().string(from: Date()),
             updatedAt: ISO8601DateFormatter().string(from: Date()),
-            lastMessagePreview: nil
+            lastMessagePreview: nil,
+            avatar: nil
         ))
     }
     .environmentObject(APIService())

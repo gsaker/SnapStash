@@ -324,6 +324,14 @@ class UserConfigurableSettings(BaseModel):
     ntfy_priority: str = Field("default", description="ntfy notification priority (min, low, default, high, urgent)")
     ntfy_attach_media: bool = Field(True, description="Attach media files to notifications")
 
+    # APNs (Apple Push Notification Service) - Native iOS Push
+    apns_enabled: bool = Field(False, description="Enable native iOS push notifications via APNs")
+    apns_key_id: Optional[str] = Field(None, description="APNs Key ID from Apple Developer Portal")
+    apns_team_id: Optional[str] = Field(None, description="Apple Developer Team ID")
+    apns_bundle_id: str = Field("com.george.SnapStash", description="iOS app bundle identifier")
+    apns_key_filename: str = Field("AuthKey.p8", description="Filename of the APNs auth key in /app/data/apns_keys/")
+    apns_use_sandbox: bool = Field(True, description="Use APNs sandbox environment (development)")
+
 
 class SettingsUpdateRequest(BaseModel):
     """Request model for updating multiple settings at once"""
@@ -335,3 +343,26 @@ MessageResponse = Message
 MediaAssetResponse = MediaAsset
 ConversationResponse = Conversation
 UserResponse = User
+
+
+# Push Device Token schemas
+class PushDeviceTokenCreate(BaseModel):
+    """Request model for registering a device token"""
+    device_token: str = Field(..., description="The APNs or FCM device token")
+    platform: str = Field(..., description="Platform: 'ios' or 'android'")
+    app_version: Optional[str] = Field(None, description="App version string")
+
+
+class PushDeviceTokenResponse(BaseModel):
+    """Response model for device token info"""
+    id: int
+    token: str
+    platform: str
+    app_version: Optional[str] = None
+    is_active: bool
+    last_seen: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

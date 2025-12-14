@@ -21,6 +21,7 @@ dependencies = [
     "numpy>=1.24.0",  # for numerical operations
     "apscheduler>=3.10.0",  # for background task scheduling
     "httpx>=0.24.0",  # for HTTP requests (ntfy notifications)
+    "aioapns>=3.0.0",  # for Apple Push Notification Service (APNs)
 ]
 
 [project.optional-dependencies]

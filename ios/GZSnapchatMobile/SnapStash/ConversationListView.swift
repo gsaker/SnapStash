@@ -144,7 +144,8 @@ struct ConversationListView: View {
                                                 lastMessageAt: nil,
                                                 createdAt: "",
                                                 updatedAt: "",
-                                                lastMessagePreview: nil
+                                                lastMessagePreview: nil,
+                                                avatar: nil
                                             ),
                                             highlightMessageId: result.id
                                         )) {
@@ -301,7 +302,8 @@ struct ConversationListView: View {
                 lastMessageAt: nil,
                 createdAt: "",
                 updatedAt: "",
-                lastMessagePreview: nil
+                lastMessagePreview: nil,
+                avatar: nil
             )
             navigationPath.append(conversation)
             deepLinkManager.clearPendingConversation()
@@ -460,30 +462,15 @@ struct ConversationRow: View {
     var isPinned: Bool = false
     var matchedContact: MatchedContact? = nil
 
-    private var avatarColor: Color {
-        conversation.isGroupChat ? .blue : .green
-    }
-
-    private var initials: String {
-        let name = conversation.displayName
-        let components = name.components(separatedBy: " ")
-        if components.count >= 2 {
-            let first = components[0].prefix(1)
-            let last = components[1].prefix(1)
-            return "\(first)\(last)".uppercased()
-        } else {
-            return String(name.prefix(2)).uppercased()
-        }
-    }
-
     var body: some View {
         HStack(spacing: 12) {
-            // Avatar - use contact photo if available
-            ContactPhotoView(
-                contact: conversation.isGroupChat ? nil : matchedContact,
-                fallbackInitials: initials,
-                fallbackColor: avatarColor,
-                size: 50
+            // Unified avatar - displays bitmoji, contact, or initials based on settings
+            UnifiedAvatarView(
+                conversation: conversation,
+                matchedContact: matchedContact,
+                displayName: conversation.displayName,
+                size: 50,
+                isGroupChat: conversation.isGroupChat
             )
 
             VStack(alignment: .leading, spacing: 4) {

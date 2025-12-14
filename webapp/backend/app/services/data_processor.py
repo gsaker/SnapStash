@@ -168,6 +168,9 @@ class DataProcessorService:
                             asset, is_new_asset = self.storage.create_media_asset(media_data)
                             db_message_data["media_asset_id"] = asset.id
                             results["media_assets_processed"] += 1
+                            if isinstance(msg_data.get("media_asset"), dict):
+                                msg_data["media_asset"]["id"] = asset.id
+                            msg_data["media_asset_id"] = asset.id
 
                             # Track this media so we don't process it again
                             if asset.cache_id:
@@ -251,7 +254,8 @@ class DataProcessorService:
                                         notification_service.send_text_message_notification(
                                             sender_username=sender,
                                             text=text,
-                                            conversation_id=conversation_id
+                                            conversation_id=conversation_id,
+                                            sender_id=msg_data.get("sender_id"),
                                         )
                                     )
                             elif content_type == 0 or content_type == 2:  # Media or mixed
@@ -259,8 +263,21 @@ class DataProcessorService:
                                 media_asset = msg_data.get("media_asset")
                                 if media_asset:
                                     media_type = media_asset.get("file_type", "media")
-                                    media_id = media_asset.get("id", 0)
+                                    media_id = media_asset.get("id") or msg_data.get("media_asset_id") or 0
+                                    try:
+                                        media_id = int(media_id)
+                                    except (TypeError, ValueError):
+                                        media_id = 0
                                     file_path = media_asset.get("file_path", "")
+                                    logger.info(
+                                        "Message media detected: conversation_id=%s content_type=%s media_id=%s media_type=%s file_path=%s media_asset_keys=%s",
+                                        conversation_id,
+                                        content_type,
+                                        media_id,
+                                        media_type,
+                                        file_path,
+                                        sorted(list(media_asset.keys())),
+                                    )
 
                                     # Prepare message text
                                     if text:
@@ -275,12 +292,18 @@ class DataProcessorService:
                                             media_id=media_id,
                                             text=message_text,
                                             file_path=file_path if file_path else None,
-                                            conversation_id=conversation_id
+                                            conversation_id=conversation_id,
+                                            sender_id=msg_data.get("sender_id"),
                                         )
                                     )
                                 else:
                                     # Media message but no asset info, send text notification
                                     message_text = text if text else "Sent media"
+                                    logger.info(
+                                        "Message media detected but missing media_asset: conversation_id=%s content_type=%s",
+                                        conversation_id,
+                                        content_type,
+                                    )
                                     asyncio.create_task(
                                         notification_service.send_text_message_notification(
                                             sender_username=sender,

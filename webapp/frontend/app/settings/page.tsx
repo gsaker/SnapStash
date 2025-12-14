@@ -23,6 +23,12 @@ interface Settings {
   ntfy_auth_token: string;
   ntfy_priority: string;
   ntfy_attach_media: boolean;
+  apns_enabled: boolean;
+  apns_key_id: string;
+  apns_team_id: string;
+  apns_bundle_id: string;
+  apns_key_filename: string;
+  apns_use_sandbox: boolean;
 }
 
 export default function SettingsPage() {
@@ -46,6 +52,12 @@ export default function SettingsPage() {
     ntfy_auth_token: '',
     ntfy_priority: 'default',
     ntfy_attach_media: true,
+    apns_enabled: false,
+    apns_key_id: '',
+    apns_team_id: '',
+    apns_bundle_id: 'com.george.SnapStash',
+    apns_key_filename: 'AuthKey.p8',
+    apns_use_sandbox: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -54,6 +66,9 @@ export default function SettingsPage() {
   const [sshKeyInfo, setSshKeyInfo] = useState<any>(null);
   const [uploadingKey, setUploadingKey] = useState(false);
   const [deletingKey, setDeletingKey] = useState(false);
+  const [apnsKeyInfo, setApnsKeyInfo] = useState<any>(null);
+  const [uploadingApnsKey, setUploadingApnsKey] = useState(false);
+  const [deletingApnsKey, setDeletingApnsKey] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -609,6 +624,123 @@ export default function SettingsPage() {
                           Ntfy is a simple HTTP-based pub-sub notification service. Subscribe to your topics using the ntfy mobile app or web interface to receive push notifications.
                           <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer" className="underline ml-1">Learn more</a>
                         </p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* APNs Push Notifications */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">iOS Push Notifications (APNs)</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={settings.apns_enabled}
+                    onChange={(e) => handleChange('apns_enabled', e.target.checked)}
+                    className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+                  />
+                  <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Enable APNs Push Notifications
+                  </span>
+                </label>
+                <p className="ml-6 text-sm text-gray-500 dark:text-gray-400">
+                  Send native iOS push notifications for new Snapchat messages
+                </p>
+              </div>
+
+              {settings.apns_enabled && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Key ID
+                      </label>
+                      <input
+                        type="text"
+                        value={settings.apns_key_id}
+                        onChange={(e) => handleChange('apns_key_id', e.target.value)}
+                        placeholder="ABCD123456"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                      />
+                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        10-character key identifier from Apple
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Team ID
+                      </label>
+                      <input
+                        type="text"
+                        value={settings.apns_team_id}
+                        onChange={(e) => handleChange('apns_team_id', e.target.value)}
+                        placeholder="XYZ9876543"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                      />
+                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        10-character team identifier from Apple
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Bundle ID
+                    </label>
+                    <input
+                      type="text"
+                      value={settings.apns_bundle_id}
+                      onChange={(e) => handleChange('apns_bundle_id', e.target.value)}
+                      placeholder="com.example.myapp"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                    />
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      Your iOS app's bundle identifier
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={settings.apns_use_sandbox}
+                        onChange={(e) => handleChange('apns_use_sandbox', e.target.checked)}
+                        className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+                      />
+                      <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Use Sandbox Environment
+                      </span>
+                    </label>
+                    <p className="ml-6 text-sm text-gray-500 dark:text-gray-400">
+                      Enable for development builds. Disable for production/TestFlight builds.
+                    </p>
+                  </div>
+
+                  <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                    <div className="flex items-start">
+                      <svg className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                      <div className="flex-1">
+                        <h3 className="text-sm font-medium text-blue-800 dark:text-blue-300 mb-1">
+                          Getting APNs Credentials
+                        </h3>
+                        <p className="text-sm text-blue-700 dark:text-blue-400 mb-2">
+                          To get your APNs credentials:
+                        </p>
+                        <ol className="text-sm text-blue-700 dark:text-blue-400 list-decimal list-inside space-y-1">
+                          <li>Go to <a href="https://developer.apple.com/account/resources/authkeys/list" target="_blank" rel="noopener noreferrer" className="underline">Apple Developer Keys</a></li>
+                          <li>Create a new key with "Apple Push Notifications service (APNs)" enabled</li>
+                          <li>Download the .p8 file and note the Key ID</li>
+                          <li>Find your Team ID in your <a href="https://developer.apple.com/account" target="_blank" rel="noopener noreferrer" className="underline">Apple Developer account</a></li>
+                          <li>Upload the .p8 key file below</li>
+                        </ol>
                       </div>
                     </div>
                   </div>

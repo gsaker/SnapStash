@@ -11,7 +11,7 @@ import Combine
 class APIService: ObservableObject {
     @Published var apiBaseURL: String {
         didSet {
-            UserDefaults.standard.set(apiBaseURL, forKey: "apiBaseURL")
+            UserDefaults(suiteName: "group.com.georgesaker147.snapstash")?.set(apiBaseURL, forKey: "apiBaseURL")
         }
     }
 
@@ -19,8 +19,10 @@ class APIService: ObservableObject {
 
     init() {
         // Load saved API URL or use default
-        let savedURL = UserDefaults.standard.string(forKey: "apiBaseURL")
-        self.apiBaseURL = savedURL ?? "http://localhost:8067"
+        let savedURL = UserDefaults(suiteName: "group.com.georgesaker147.snapstash")?.string(forKey: "apiBaseURL")
+        let initialApiBaseURL = savedURL ?? "http://localhost:8067"
+        self.apiBaseURL = initialApiBaseURL
+        UserDefaults(suiteName: "group.com.georgesaker147.snapstash")?.set(initialApiBaseURL, forKey: "apiBaseURL")
 
         // Configure JSON decoder
         decoder = JSONDecoder()
@@ -290,5 +292,63 @@ class APIService: ObservableObject {
         }
         
         return try decoder.decode(SearchResponse.self, from: data)
+    }
+    
+    // MARK: - Device Registration (Push Notifications)
+    
+    func registerDeviceToken(_ token: String) async throws -> Bool {
+        guard let url = URL(string: "\(apiBaseURL)/api/devices/register") else {
+            throw APIError(statusCode: nil, message: "Invalid URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
+        
+        let body: [String: Any] = [
+            "device_token": token,
+            "platform": "ios",
+            "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        ]
+        
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(statusCode: nil, message: "Invalid response")
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError(statusCode: httpResponse.statusCode, message: errorMessage)
+        }
+        
+        print("✅ Device token registered with backend")
+        return true
+    }
+    
+    func unregisterDeviceToken(_ token: String) async throws -> Bool {
+        guard let url = URL(string: "\(apiBaseURL)/api/devices/unregister/\(token)") else {
+            throw APIError(statusCode: nil, message: "Invalid URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 30
+        
+        let (_, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError(statusCode: nil, message: "Invalid response")
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError(statusCode: httpResponse.statusCode, message: "Failed to unregister")
+        }
+        
+        print("✅ Device token unregistered from backend")
+        return true
     }
 }

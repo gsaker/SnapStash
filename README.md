@@ -106,6 +106,24 @@ The project includes a native iOS application (`ios/SnapStashMobile`) built with
 
 ![iOS App](screenshots/iosmain.png)
 
+### iOS Push Notifications
+
+The iOS app now supports rich push notifications with the following features:
+
+*   **Communication Notifications:** New messages appear as communication-style notifications with sender avatars
+*   **Media Attachments:** Notifications display image and video previews directly in the notification
+*   **Bitmoji Avatars:** Sender Bitmoji avatars are shown with a yellow background matching Snapchat's style
+*   **Notification Service Extension:** Downloads and processes media in the background for instant rich notifications
+
+To enable push notifications:
+
+1.  **Generate APNs credentials:** You'll need an Apple Developer account to create an APNs authentication key (.p8 file) from the Apple Developer Portal
+2.  Configure your Apple Push Notification service (APNs) certificates in the backend settings
+3.  Register your device token in the app settings
+4.  Grant notification permissions when prompted
+
+The notification service extension handles downloading images and avatars in the background, ensuring rich media appears immediately without opening the app.
+
 ## Disclaimer
 
 This software is for educational and archival purposes only. Users are responsible for complying with all applicable laws and Terms of Service.

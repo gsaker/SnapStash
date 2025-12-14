@@ -1,4 +1,5 @@
 import os
+import mimetypes
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -184,11 +185,34 @@ async def serve_media_file(
     
     # Determine filename for download
     filename = os.path.basename(full_file_path)
+
+    # Prefer stored mime type, otherwise guess from file extension / file signature for better client compatibility
+    media_type = media_asset.mime_type
+    guessed_extension: Optional[str] = None
+
+    if not media_type or media_type == "application/octet-stream":
+        guessed, _ = mimetypes.guess_type(full_file_path)
+        media_type = guessed or media_type or "application/octet-stream"
+
+    if media_type == "application/octet-stream":
+        try:
+            import filetype
+
+            kind = filetype.guess(full_file_path)
+            if kind:
+                media_type = kind.mime or media_type
+                guessed_extension = kind.extension
+        except Exception:
+            pass
+
+    # If we stored the file as ".bin" but can infer a better extension, expose it in Content-Disposition
+    if filename.lower().endswith(".bin") and guessed_extension:
+        filename = f"{os.path.splitext(filename)[0]}.{guessed_extension}"
     
     # Return file response with appropriate media type
     return FileResponse(
         path=full_file_path,
-        media_type=media_asset.mime_type or "application/octet-stream",
+        media_type=media_type,
         filename=filename
     )
 

@@ -278,3 +278,25 @@ class AppSettings(Base):
     __table_args__ = (
         Index("idx_settings_category", "category"),
     )
+
+
+class PushDeviceToken(Base):
+    """Store iOS/Android device tokens for push notifications"""
+    
+    __tablename__ = "push_device_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token = Column(String, unique=True, nullable=False)
+    platform = Column(String, nullable=False)  # "ios" or "android"
+    app_version = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_seen = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_push_tokens_platform", "platform"),
+        Index("idx_push_tokens_active", "is_active"),
+    )

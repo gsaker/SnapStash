@@ -38,6 +38,13 @@ class SettingsService:
         "ntfy_auth_token": {"value": None, "type": "string", "category": "notifications", "description": "ntfy authentication token (optional, alternative to username/password)"},
         "ntfy_priority": {"value": "default", "type": "string", "category": "notifications", "description": "ntfy notification priority (min, low, default, high, urgent)"},
         "ntfy_attach_media": {"value": "true", "type": "bool", "category": "notifications", "description": "Attach media files to notifications"},
+        # APNs (Apple Push Notification Service) settings
+        "apns_enabled": {"value": "false", "type": "bool", "category": "apns", "description": "Enable native iOS push notifications via APNs"},
+        "apns_key_id": {"value": None, "type": "string", "category": "apns", "description": "APNs Key ID from Apple Developer Portal"},
+        "apns_team_id": {"value": None, "type": "string", "category": "apns", "description": "Apple Developer Team ID"},
+        "apns_bundle_id": {"value": "com.george.SnapStash", "type": "string", "category": "apns", "description": "iOS app bundle identifier"},
+        "apns_key_filename": {"value": "AuthKey.p8", "type": "string", "category": "apns", "description": "Filename of the APNs auth key in /app/data/apns_keys/"},
+        "apns_use_sandbox": {"value": "true", "type": "bool", "category": "apns", "description": "Use APNs sandbox environment (development)"},
     }
 
     def __init__(self, db: Optional[Session] = None):
@@ -195,6 +202,12 @@ class SettingsService:
             ntfy_auth_token=self.get_setting("ntfy_auth_token"),
             ntfy_priority=self.get_setting("ntfy_priority", "default"),
             ntfy_attach_media=self.get_setting("ntfy_attach_media", True),
+            apns_enabled=self.get_setting("apns_enabled", False),
+            apns_key_id=self.get_setting("apns_key_id"),
+            apns_team_id=self.get_setting("apns_team_id"),
+            apns_bundle_id=self.get_setting("apns_bundle_id", "com.george.SnapStash"),
+            apns_key_filename=self.get_setting("apns_key_filename", "AuthKey.p8"),
+            apns_use_sandbox=self.get_setting("apns_use_sandbox", True),
         )
 
     def update_settings(self, settings: UserConfigurableSettings) -> bool:

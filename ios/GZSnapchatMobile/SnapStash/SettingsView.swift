@@ -9,6 +9,52 @@ import SwiftUI
 import Combine
 import Contacts
 
+// MARK: - Avatar Source Setting
+enum AvatarSource: String, CaseIterable {
+    case bitmoji = "bitmoji"
+    case contacts = "contacts"
+    case initials = "initials"
+    
+    var displayName: String {
+        switch self {
+        case .bitmoji: return "Snapchat Bitmoji"
+        case .contacts: return "Device Contacts"
+        case .initials: return "Initials Only"
+        }
+    }
+    
+    var icon: String {
+        switch self {
+        case .bitmoji: return "face.smiling"
+        case .contacts: return "person.crop.circle"
+        case .initials: return "textformat"
+        }
+    }
+    
+    var description: String {
+        switch self {
+        case .bitmoji: return "Use Snapchat Bitmoji avatars from the server"
+        case .contacts: return "Match conversations with device contacts"
+        case .initials: return "Show initials only (no photos)"
+        }
+    }
+}
+
+class AvatarSettings: ObservableObject {
+    static let shared = AvatarSettings()
+    
+    @Published var avatarSource: AvatarSource {
+        didSet {
+            UserDefaults.standard.set(avatarSource.rawValue, forKey: "avatarSource")
+        }
+    }
+    
+    init() {
+        let savedSource = UserDefaults.standard.string(forKey: "avatarSource") ?? AvatarSource.bitmoji.rawValue
+        self.avatarSource = AvatarSource(rawValue: savedSource) ?? .bitmoji
+    }
+}
+
 // MARK: - Theme Settings
 class ThemeSettings: ObservableObject {
     @Published var senderBubbleRed: Double {
@@ -73,6 +119,7 @@ struct SettingsView: View {
     @EnvironmentObject var apiService: APIService
     @EnvironmentObject var themeSettings: ThemeSettings
     @Environment(\.dismiss) var dismiss
+    @ObservedObject var avatarSettings = AvatarSettings.shared
 
     @State private var apiURL: String = ""
     @State private var isTestingConnection = false
@@ -253,7 +300,14 @@ struct SettingsView: View {
                     Text("Customize the appearance of message bubbles in conversations.")
                 }
 
-                ContactPermissionsSection()
+                AvatarSourceSection()
+
+                // Only show contact permissions if contacts source is selected
+                if avatarSettings.avatarSource == .contacts {
+                    ContactPermissionsSection()
+                }
+
+                PushNotificationsSection()
 
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
@@ -352,6 +406,50 @@ struct SettingsView: View {
         themeSettings.resetToDefaults()
         senderColor = themeSettings.senderBubbleColor
         recipientColor = themeSettings.recipientBubbleColor
+    }
+}
+
+// MARK: - Avatar Source Section
+struct AvatarSourceSection: View {
+    @ObservedObject var avatarSettings = AvatarSettings.shared
+    
+    var body: some View {
+        Section {
+            ForEach(AvatarSource.allCases, id: \.rawValue) { source in
+                Button(action: {
+                    withAnimation {
+                        avatarSettings.avatarSource = source
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: source.icon)
+                            .foregroundColor(avatarSettings.avatarSource == source ? .yellow : .gray)
+                            .frame(width: 24)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(source.displayName)
+                                .font(.body)
+                                .foregroundColor(.primary)
+                            Text(source.description)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        if avatarSettings.avatarSource == source {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.yellow)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        } header: {
+            Text("Avatar Source")
+        } footer: {
+            Text("Choose how profile pictures are displayed in conversations.")
+        }
     }
 }
 
@@ -486,6 +584,254 @@ struct ContactPermissionsSection: View {
     private func refreshContacts() {
         Task {
             await contactsManager.fetchContacts()
+        }
+    }
+}
+
+// MARK: - Push Notifications Section
+struct PushNotificationsSection: View {
+    @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
+    @State private var deviceToken: String?
+    @State private var isTokenRegistered: Bool = false
+    @State private var isSendingTest: Bool = false
+    @State private var testResult: String?
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                // Notification Permission Status
+                HStack {
+                    Image(systemName: statusIcon)
+                        .foregroundColor(statusColor)
+                        .imageScale(.large)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Notification Permission")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Text(statusText)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+
+                // Device Token Status
+                if let token = deviceToken {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: isTokenRegistered ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                                .foregroundColor(isTokenRegistered ? .green : .orange)
+                            Text("Device Token")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
+
+                        Text(isTokenRegistered ? "Registered with backend" : "Not registered with backend")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Text(token.prefix(40) + "...")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                // Action buttons
+                if notificationStatus == .denied {
+                    Button(action: openSettings) {
+                        HStack {
+                            Image(systemName: "gear")
+                            Text("Open Settings")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else if notificationStatus == .notDetermined {
+                    Button(action: requestPermission) {
+                        HStack {
+                            Image(systemName: "bell.badge")
+                            Text("Enable Notifications")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else if notificationStatus == .authorized && isTokenRegistered {
+                    Button(action: sendTestNotification) {
+                        HStack {
+                            if isSendingTest {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .padding(.trailing, 4)
+                            }
+                            Image(systemName: "bell.badge.fill")
+                            Text(isSendingTest ? "Sending..." : "Send Test Notification")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSendingTest)
+
+                    // Show test result
+                    if let testResult = testResult {
+                        HStack {
+                            Image(systemName: testResult.contains("✅") ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(testResult.contains("✅") ? .green : .red)
+                            Text(testResult)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        } header: {
+            Text("Push Notifications")
+        } footer: {
+            Text("Receive push notifications when new messages arrive. Requires backend APNs configuration.")
+        }
+        .onAppear {
+            checkNotificationStatus()
+            loadDeviceToken()
+        }
+    }
+
+    private var statusIcon: String {
+        switch notificationStatus {
+        case .authorized:
+            return "bell.fill"
+        case .denied:
+            return "bell.slash.fill"
+        case .notDetermined:
+            return "bell"
+        case .provisional:
+            return "bell.badge"
+        case .ephemeral:
+            return "bell"
+        @unknown default:
+            return "bell"
+        }
+    }
+
+    private var statusColor: Color {
+        switch notificationStatus {
+        case .authorized, .provisional:
+            return .green
+        case .denied:
+            return .red
+        case .notDetermined, .ephemeral:
+            return .orange
+        @unknown default:
+            return .gray
+        }
+    }
+
+    private var statusText: String {
+        switch notificationStatus {
+        case .authorized:
+            return "Enabled"
+        case .denied:
+            return "Denied - Enable in Settings"
+        case .notDetermined:
+            return "Not Requested"
+        case .provisional:
+            return "Provisional"
+        case .ephemeral:
+            return "Ephemeral"
+        @unknown default:
+            return "Unknown"
+        }
+    }
+
+    private func checkNotificationStatus() {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            DispatchQueue.main.async {
+                self.notificationStatus = settings.authorizationStatus
+            }
+        }
+    }
+
+    private func loadDeviceToken() {
+        let sharedDefaults = UserDefaults(suiteName: "group.com.georgesaker147.snapstash")
+        // Try both keys for backwards compatibility
+        deviceToken = sharedDefaults?.string(forKey: "deviceToken")
+            ?? sharedDefaults?.string(forKey: "apnsDeviceToken")
+        isTokenRegistered = sharedDefaults?.bool(forKey: "deviceTokenRegistered") ?? false
+    }
+
+    private func requestPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            DispatchQueue.main.async {
+                if granted {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+                checkNotificationStatus()
+            }
+        }
+    }
+
+    private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+        }
+    }
+
+    private func sendTestNotification() {
+        guard let apiBaseURL = UserDefaults(suiteName: "group.com.georgesaker147.snapstash")?.string(forKey: "apiBaseURL") else {
+            testResult = "❌ No API URL configured"
+            return
+        }
+
+        isSendingTest = true
+        testResult = nil
+
+        Task {
+            do {
+                guard let url = URL(string: "\(apiBaseURL)/api/test/notification") else {
+                    await MainActor.run {
+                        testResult = "❌ Invalid URL"
+                        isSendingTest = false
+                    }
+                    return
+                }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = 30
+
+                let body: [String: Any] = [
+                    "title": "Test Notification",
+                    "body": "This is a test notification from SnapStash!",
+                    "conversation_id": "test-conversation"
+                ]
+
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                let (_, response) = try await URLSession.shared.data(for: request)
+
+                await MainActor.run {
+                    if let httpResponse = response as? HTTPURLResponse {
+                        if (200...299).contains(httpResponse.statusCode) {
+                            testResult = "✅ Test notification sent!"
+                        } else {
+                            testResult = "❌ Failed: HTTP \(httpResponse.statusCode)"
+                        }
+                    } else {
+                        testResult = "❌ Invalid response"
+                    }
+                    isSendingTest = false
+                }
+            } catch {
+                await MainActor.run {
+                    testResult = "❌ Error: \(error.localizedDescription)"
+                    isSendingTest = false
+                }
+            }
         }
     }
 }

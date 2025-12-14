@@ -8,6 +8,8 @@ from .init_db import init_database
 from .services.ingest_loop import get_ingest_loop_service
 from .api import health, ingest, messages, media, conversations, users, stats, scheduler, search
 from .api import settings as settings_api
+from .api import devices as devices_api
+from .api import test as test_api
 
 # Configure logging for Docker
 logging.basicConfig(
@@ -92,6 +94,8 @@ app.include_router(stats.router)
 app.include_router(scheduler.router)
 app.include_router(settings_api.router)
 app.include_router(search.router)
+app.include_router(devices_api.router)
+app.include_router(test_api.router)
 
 @app.get("/")
 async def root():

@@ -1,6 +1,7 @@
 """
 Notification Service
 Sends notifications via ntfy for new Snapchat messages and media.
+Also integrates with APNs for native iOS push notifications.
 """
 
 import logging
@@ -16,12 +17,43 @@ logger = logging.getLogger(__name__)
 
 
 class NotificationService:
-    """Service for sending ntfy notifications"""
+    """Service for sending ntfy notifications and APNs push notifications"""
 
     def __init__(self, db: Optional[Session] = None):
         """Initialize notification service with optional database session"""
         self.db = db
         self.settings_service = get_settings_service(db)
+        self._apns_service = None
+
+    def _get_apns_service(self):
+        """Lazy load APNs service"""
+        if self._apns_service is None:
+            from .apns_service import get_apns_service
+            self._apns_service = get_apns_service(self.db)
+        return self._apns_service
+
+    def _get_sender_avatar_url(self, sender_id: Optional[str]) -> Optional[str]:
+        if not sender_id:
+            logger.warning("_get_sender_avatar_url called with no sender_id")
+            return None
+        if not self.db:
+            logger.warning("_get_sender_avatar_url called with no database session")
+            return None
+        try:
+            from ..models import User
+
+            user = self.db.query(User).filter(User.id == sender_id).first()
+            if not user:
+                logger.warning(f"User not found for sender_id: {sender_id}")
+                return None
+            if not user.bitmoji_url:
+                logger.warning(f"User {sender_id} has no bitmoji_url")
+                return None
+            logger.info(f"Found bitmoji_url for {sender_id}: {user.bitmoji_url}")
+            return user.bitmoji_url
+        except Exception as e:
+            logger.error(f"Failed to resolve sender avatar URL for {sender_id}: {e}")
+            return None
 
     def _is_enabled(self) -> bool:
         """Check if ntfy notifications are enabled"""
@@ -246,6 +278,7 @@ class NotificationService:
         text: str,
         conversation_name: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        sender_id: Optional[str] = None,
     ) -> bool:
         """
         Send notification for a new text message
@@ -265,6 +298,21 @@ class NotificationService:
             logger.debug(f"Skipping notification for excluded sender: {sender_username}")
             return False
 
+        # Send APNs notification (native iOS push)
+        try:
+            apns = self._get_apns_service()
+            sender_avatar_url = self._get_sender_avatar_url(sender_id)
+            await apns.send_text_message_notification(
+                sender_username=sender_username,
+                text=text,
+                conversation_id=conversation_id,
+                sender_avatar_url=sender_avatar_url,
+                sender_id=sender_id,
+            )
+        except Exception as e:
+            logger.warning(f"APNs notification failed: {e}")
+
+        # Send ntfy notification
         topic = self.settings_service.get_setting("ntfy_text_topic")
         if not topic:
             logger.debug("No text message topic configured")
@@ -291,6 +339,7 @@ class NotificationService:
         text: Optional[str] = None,
         file_path: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        sender_id: Optional[str] = None,
     ) -> bool:
         """
         Send notification for a new media message
@@ -313,6 +362,48 @@ class NotificationService:
             logger.debug(f"Skipping notification for excluded sender: {sender_username}")
             return False
 
+        # Send APNs notification (native iOS push)
+        try:
+            apns = self._get_apns_service()
+            sender_avatar_url = self._get_sender_avatar_url(sender_id)
+
+            # Build media URL for rich notifications (images only)
+            normalized_media_type = (media_type or "").lower()
+            image_extensions = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif")
+            looks_like_image = (
+                normalized_media_type in {"image", "photo"}
+                or "image" in normalized_media_type
+                or any((file_path or "").lower().endswith(ext) for ext in image_extensions)
+            )
+
+            media_url = None
+            if looks_like_image and media_id:
+                # Construct full URL to media endpoint
+                # The iOS app will use its configured API base URL + this path
+                media_url = f"/api/media/{media_id}/file"
+
+            logger.info(
+                "Media notification: media_id=%s media_type=%s looks_like_image=%s file_path=%s media_url=%s",
+                media_id,
+                media_type,
+                looks_like_image,
+                file_path,
+                media_url,
+            )
+
+            await apns.send_media_message_notification(
+                sender_username=sender_username,
+                media_type=media_type,
+                conversation_id=conversation_id,
+                text=text,
+                media_url=media_url,
+                sender_avatar_url=sender_avatar_url,
+                sender_id=sender_id,
+            )
+        except Exception as e:
+            logger.warning(f"APNs notification failed: {e}")
+
+        # Send ntfy notification
         topic = self.settings_service.get_setting("ntfy_media_topic")
         if not topic:
             logger.debug("No media message topic configured")

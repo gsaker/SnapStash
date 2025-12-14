@@ -18,9 +18,9 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
-	<key>NSContactsUsageDescription</key>
-	<string>This app uses your contacts to match profile pictures with conversations based on names.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>This app uses speech recognition to transcribe voice messages into text.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 </dict>
 </plist>

@@ -126,6 +126,12 @@ export const api = {
     ntfy_auth_token?: string;
     ntfy_priority?: string;
     ntfy_attach_media?: boolean;
+    apns_enabled?: boolean;
+    apns_key_id?: string;
+    apns_team_id?: string;
+    apns_bundle_id?: string;
+    apns_key_filename?: string;
+    apns_use_sandbox?: boolean;
   }) => {
     return apiRequest('/api/settings/', {
       method: 'PUT',

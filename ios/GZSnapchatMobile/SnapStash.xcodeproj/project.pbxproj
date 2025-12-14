@@ -6,8 +6,37 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5E256C222EEDEAC200AC376A /* NotificationServiceExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5E256C1B2EEDEAC200AC376A /* NotificationServiceExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5E256C202EEDEAC200AC376A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5E0069E32EC61A1200EB9C81 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E256C1A2EEDEAC200AC376A;
+			remoteInfo = NotificationServiceExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5E256C232EEDEAC200AC376A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				5E256C222EEDEAC200AC376A /* NotificationServiceExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		5E0069EB2EC61A1200EB9C81 /* SnapStash.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SnapStash.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E256C1B2EEDEAC200AC376A /* NotificationServiceExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationServiceExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -18,6 +47,20 @@
 			);
 			target = 5E0069EA2EC61A1200EB9C81 /* SnapStash */;
 		};
+		5E256C272EEDEAC200AC376A /* Exceptions for "NotificationServiceExtension" folder in "NotificationServiceExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 5E256C1A2EEDEAC200AC376A /* NotificationServiceExtension */;
+		};
+		5E256C2A2EEE19D400AC376A /* Exceptions for "SnapStash" folder in "NotificationServiceExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Assets.xcassets,
+			);
+			target = 5E256C1A2EEDEAC200AC376A /* NotificationServiceExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -25,14 +68,30 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				5E0243E32EC61EA00045F558 /* Exceptions for "SnapStash" folder in "SnapStash" target */,
+				5E256C2A2EEE19D400AC376A /* Exceptions for "SnapStash" folder in "NotificationServiceExtension" target */,
 			);
 			path = SnapStash;
+			sourceTree = "<group>";
+		};
+		5E256C1C2EEDEAC200AC376A /* NotificationServiceExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5E256C272EEDEAC200AC376A /* Exceptions for "NotificationServiceExtension" folder in "NotificationServiceExtension" target */,
+			);
+			path = NotificationServiceExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		5E0069E82EC61A1200EB9C81 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E256C182EEDEAC200AC376A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -46,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				5E0069ED2EC61A1200EB9C81 /* SnapStash */,
+				5E256C1C2EEDEAC200AC376A /* NotificationServiceExtension */,
 				5E0069EC2EC61A1200EB9C81 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +114,7 @@
 			isa = PBXGroup;
 			children = (
 				5E0069EB2EC61A1200EB9C81 /* SnapStash.app */,
+				5E256C1B2EEDEAC200AC376A /* NotificationServiceExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -68,10 +129,12 @@
 				5E0069E72EC61A1200EB9C81 /* Sources */,
 				5E0069E82EC61A1200EB9C81 /* Frameworks */,
 				5E0069E92EC61A1200EB9C81 /* Resources */,
+				5E256C232EEDEAC200AC376A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				5E256C212EEDEAC200AC376A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				5E0069ED2EC61A1200EB9C81 /* SnapStash */,
@@ -82,6 +145,28 @@
 			productName = GZSnapchatMobile;
 			productReference = 5E0069EB2EC61A1200EB9C81 /* SnapStash.app */;
 			productType = "com.apple.product-type.application";
+		};
+		5E256C1A2EEDEAC200AC376A /* NotificationServiceExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E256C262EEDEAC200AC376A /* Build configuration list for PBXNativeTarget "NotificationServiceExtension" */;
+			buildPhases = (
+				5E256C172EEDEAC200AC376A /* Sources */,
+				5E256C182EEDEAC200AC376A /* Frameworks */,
+				5E256C192EEDEAC200AC376A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5E256C1C2EEDEAC200AC376A /* NotificationServiceExtension */,
+			);
+			name = NotificationServiceExtension;
+			packageProductDependencies = (
+			);
+			productName = NotificationServiceExtension;
+			productReference = 5E256C1B2EEDEAC200AC376A /* NotificationServiceExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -94,6 +179,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					5E0069EA2EC61A1200EB9C81 = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
+					5E256C1A2EEDEAC200AC376A = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
 				};
@@ -113,12 +201,20 @@
 			projectRoot = "";
 			targets = (
 				5E0069EA2EC61A1200EB9C81 /* SnapStash */,
+				5E256C1A2EEDEAC200AC376A /* NotificationServiceExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		5E0069E92EC61A1200EB9C81 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E256C192EEDEAC200AC376A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -135,7 +231,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E256C172EEDEAC200AC376A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5E256C212EEDEAC200AC376A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5E256C1A2EEDEAC200AC376A /* NotificationServiceExtension */;
+			targetProxy = 5E256C202EEDEAC200AC376A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		5E0069F42EC61A1300EB9C81 /* Debug */ = {
@@ -264,13 +375,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SnapStash/SnapStash.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GP76XW2XQ4;
+				DEVELOPMENT_TEAM = Y3L4958BBW;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SnapStash/Info.plist;
 				"INFOPLIST_KEY_NSAppTransportSecurity[sdk=*]" = "<dict><key>NSAllowsArbitraryLoads</key><true/><key>NSAllowsLocalNetworking</key><true/></dict>";
+				INFOPLIST_KEY_NSContactsUsageDescription = "This app uses your contacts to match profile pictures with conversations based on names.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to transcribe voice messages into text.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -281,8 +396,9 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.george.GZSnapchatMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.georgesaker147.snapstash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -298,13 +414,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SnapStash/SnapStash.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GP76XW2XQ4;
+				DEVELOPMENT_TEAM = Y3L4958BBW;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SnapStash/Info.plist;
 				"INFOPLIST_KEY_NSAppTransportSecurity[sdk=*]" = "<dict><key>NSAllowsArbitraryLoads</key><true/><key>NSAllowsLocalNetworking</key><true/></dict>";
+				INFOPLIST_KEY_NSContactsUsageDescription = "This app uses your contacts to match profile pictures with conversations based on names.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to transcribe voice messages into text.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -315,11 +435,72 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.george.GZSnapchatMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.georgesaker147.snapstash;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		5E256C242EEDEAC200AC376A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NotificationServiceExtension/NotificationServiceExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Y3L4958BBW;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotificationServiceExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = NotificationServiceExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.georgesaker147.snapstash.NotificationServiceExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		5E256C252EEDEAC200AC376A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NotificationServiceExtension/NotificationServiceExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Y3L4958BBW;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotificationServiceExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = NotificationServiceExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.georgesaker147.snapstash.NotificationServiceExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -344,6 +525,15 @@
 			buildConfigurations = (
 				5E0069F72EC61A1300EB9C81 /* Debug */,
 				5E0069F82EC61A1300EB9C81 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E256C262EEDEAC200AC376A /* Build configuration list for PBXNativeTarget "NotificationServiceExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E256C242EEDEAC200AC376A /* Debug */,
+				5E256C252EEDEAC200AC376A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
