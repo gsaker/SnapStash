@@ -58,6 +58,8 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Assets.xcassets,
+				CoreDataStack.swift,
+				SnapStashDataModel.xcdatamodeld,
 			);
 			target = 5E256C1A2EEDEAC200AC376A /* NotificationServiceExtension */;
 		};

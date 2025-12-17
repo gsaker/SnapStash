@@ -30,6 +30,8 @@ struct IdentifiableURL: Identifiable {
 
 struct ChatView: View {
     @EnvironmentObject var apiService: APIService
+    @StateObject private var dataRepository = DataRepository.shared
+    @StateObject private var syncManager = SyncManager.shared
     let conversation: Conversation
     var highlightMessageId: Int? = nil
 
@@ -233,22 +235,19 @@ struct ChatView: View {
                 }
             }
         }
-        .onAppear {
-            // Immediately load cached messages if available (synchronous)
-            if let cached = MessagePreloader.shared.getCachedMessages(for: conversation.id) {
-                print("📦 Instantly loading \(cached.messages.count) preloaded messages for conversation: \(conversation.id)")
-                messages = cached.messages
-                currentOffset = cached.messages.count
-                hasMoreOlderMessages = cached.pagination.hasNext
-                didLoadInitialMessages = true
-            }
-        }
         .task {
-            await loadCurrentUser()
-            // Only load from network if we don't have cached messages, or to refresh
-            if messages.isEmpty {
-                await loadMessages()
+            // Load current user ID from local storage immediately (no network)
+            loadCurrentUserFromLocal()
+
+            // Load messages from local storage immediately (offline-first, non-blocking)
+            await loadMessagesFromLocal()
+
+            // Background sync from server without blocking UI
+            Task.detached(priority: .background) {
+                await self.refreshMessagesInBackground()
+                await self.refreshCurrentUserInBackground()
             }
+
             // Handle initial highlight if coming from search
             if let highlightId = highlightMessageId {
                 highlightedMessageId = highlightId
@@ -307,54 +306,64 @@ struct ChatView: View {
         .toolbar(showMessageDetail ? .hidden : .visible, for: .navigationBar)
     }
 
-    private func loadCurrentUser() async {
+    private func loadCurrentUserFromLocal() {
+        // Get from local storage immediately (no network call)
+        if let storedUserId = dataRepository.currentUserId {
+            currentUserId = storedUserId
+            print("📦 Loaded current user ID from storage: \(storedUserId)")
+        }
+    }
+
+    private func refreshCurrentUserInBackground() async {
+        // Silently refresh current user from server in background
         do {
-            let user = try await apiService.getCurrentUser()
-            currentUserId = user.id
+            let user = try await dataRepository.fetchCurrentUser(forceRefresh: true)
+            await MainActor.run {
+                currentUserId = user.id
+                print("✅ Background refresh of current user completed")
+            }
         } catch {
-            // Current user not available, all messages will be shown as from others
-            print("Could not fetch current user: \(error)")
+            print("⚠️ Background refresh of current user failed: \(error)")
+            // Don't show error - we already have cached user ID
+        }
+    }
+
+    private func loadMessagesFromLocal() async {
+        // Load from CoreData immediately (offline-first, no network)
+        print("📦 Loading messages from local storage for conversation: \(conversation.id)")
+        let localMessages = await dataRepository.fetchMessagesFromLocalOnly(conversationId: conversation.id, limit: pageSize, offset: 0)
+
+        if !localMessages.isEmpty {
+            print("✅ Loaded \(localMessages.count) messages from local storage")
+            messages = localMessages.sorted { $0.creationTimestamp < $1.creationTimestamp }
+            currentOffset = localMessages.count
+            didLoadInitialMessages = true
+        } else {
+            print("⚠️ No messages found in local storage")
+            didLoadInitialMessages = true
         }
     }
 
     private func loadMessages() async {
         isLoading = true
         errorMessage = nil
-        
+
         // Reset pagination state
         currentOffset = 0
         hasMoreOlderMessages = true
 
-        // Check for preloaded messages first
-        if let cached = MessagePreloader.shared.getCachedMessages(for: conversation.id) {
-            print("📦 Using preloaded messages for conversation: \(conversation.id) (\(cached.messages.count) messages)")
-            messages = cached.messages
-            currentOffset = cached.messages.count
-            hasMoreOlderMessages = cached.pagination.hasNext
-            isLoading = false
-            didLoadInitialMessages = true
-            return
-        }
-
         do {
             print("🔍 Loading messages for conversation: \(conversation.id)")
-            let response = try await apiService.getMessages(
-                conversationId: conversation.id,
-                limit: pageSize,
-                offset: 0
-            )
-            print("✅ Loaded \(response.messages.count) messages (total: \(response.pagination.total), hasNext: \(response.pagination.hasNext))")
-            messages = response.messages.sorted { $0.creationTimestamp < $1.creationTimestamp }
-            currentOffset = response.messages.count
-            // Use hasNext to check for older messages (API returns newest first, so "next" page = older messages)
-            hasMoreOlderMessages = response.pagination.hasNext
-            
-            // Update preloader cache with fresh data
-            MessagePreloader.shared.updateCache(
-                for: conversation.id,
-                messages: messages,
-                pagination: response.pagination
-            )
+            let fetchedMessages = try await dataRepository.fetchMessages(for: conversation.id, limit: pageSize, offset: 0, forceRefresh: true)
+            print("✅ Loaded \(fetchedMessages.count) messages")
+            messages = fetchedMessages.sorted { $0.creationTimestamp < $1.creationTimestamp }
+            currentOffset = fetchedMessages.count
+            hasMoreOlderMessages = fetchedMessages.count >= pageSize
+
+            // Sync this conversation in the background
+            Task.detached {
+                await SyncManager.shared.syncConversation(self.conversation.id)
+            }
         } catch let error as APIError {
             print("❌ APIError loading messages: \(error.message)")
             errorMessage = error.message
@@ -366,45 +375,61 @@ struct ChatView: View {
         isLoading = false
         didLoadInitialMessages = true
     }
+
+    private func refreshMessagesInBackground() async {
+        // Silently refresh from server without blocking UI or showing loading state
+        do {
+            print("🔄 Background refresh for conversation: \(conversation.id)")
+            let fetchedMessages = try await dataRepository.fetchMessages(for: conversation.id, limit: pageSize, offset: 0, forceRefresh: true)
+
+            await MainActor.run {
+                if !fetchedMessages.isEmpty {
+                    messages = fetchedMessages.sorted { $0.creationTimestamp < $1.creationTimestamp }
+                    currentOffset = fetchedMessages.count
+                    hasMoreOlderMessages = fetchedMessages.count >= pageSize
+                    print("✅ Background refresh completed: \(fetchedMessages.count) messages")
+                }
+            }
+
+            // Sync this conversation in the background
+            Task.detached {
+                await SyncManager.shared.syncConversation(self.conversation.id)
+            }
+        } catch {
+            print("⚠️ Background refresh failed: \(error)")
+            // Don't show error to user - they already have cached data
+        }
+    }
     
     private func loadOlderMessages() async {
         guard !isLoadingOlder && hasMoreOlderMessages else { return }
-        
+
         isLoadingOlder = true
-        
+
         do {
             print("🔍 Loading older messages, offset: \(currentOffset)")
-            let response = try await apiService.getMessages(
-                conversationId: conversation.id,
+            let olderMessages = try await dataRepository.fetchMessages(
+                for: conversation.id,
                 limit: pageSize,
-                offset: currentOffset
+                offset: currentOffset,
+                forceRefresh: true
             )
-            print("✅ Loaded \(response.messages.count) older messages (hasNext: \(response.pagination.hasNext))")
-            
-            if response.messages.isEmpty {
+            print("✅ Loaded \(olderMessages.count) older messages")
+
+            if olderMessages.isEmpty {
                 hasMoreOlderMessages = false
             } else {
-                // Prepend older messages (they come sorted by newest first from API, so we need to sort and prepend)
-                let olderMessages = response.messages.sorted { $0.creationTimestamp < $1.creationTimestamp }
-                // scrollPosition API automatically maintains scroll position when items are prepended
-                messages = olderMessages + messages
-                currentOffset += response.messages.count
-                // Use hasNext to check for more older messages
-                hasMoreOlderMessages = response.pagination.hasNext
-                
-                // Update preloader cache with all loaded messages
-                MessagePreloader.shared.updateCache(
-                    for: conversation.id,
-                    messages: messages,
-                    pagination: response.pagination
-                )
+                // Prepend older messages
+                let sortedOlder = olderMessages.sorted { $0.creationTimestamp < $1.creationTimestamp }
+                messages = sortedOlder + messages
+                currentOffset += olderMessages.count
+                hasMoreOlderMessages = olderMessages.count >= pageSize
             }
         } catch {
             print("❌ Error loading older messages: \(error)")
-            // Don't show error for pagination failures, just stop loading
             hasMoreOlderMessages = false
         }
-        
+
         isLoadingOlder = false
     }
     
@@ -753,16 +778,7 @@ struct MessageBubble: View {
     private func openInQuickLook(media: MediaAsset) {
         Task {
             do {
-                // Check for preloaded media first
-                let mediaData: Data
-                if let cachedData = MessagePreloader.shared.getCachedMedia(for: media.id) {
-                    print("📦 Using preloaded media for QuickLook ID: \(media.id)")
-                    mediaData = cachedData
-                } else {
-                    mediaData = try await apiService.downloadMedia(mediaId: media.id)
-                    // Update preloader cache
-                    MessagePreloader.shared.updateMediaCache(mediaId: media.id, data: mediaData)
-                }
+                let mediaData = try await MediaStorageManager.shared.getMediaData(mediaId: media.id)
                 
                 // Determine proper file extension
                 let fileExtension: String
@@ -794,6 +810,7 @@ struct MediaPreview: View {
     @State private var thumbnailImage: UIImage?
     @State private var isLoading = false
     @State private var actualDisplaySize: CGSize?
+    @State private var retryTrigger = 0
 
     // Fixed dimensions for placeholder and max size
     private let maxWidth: CGFloat = 250
@@ -814,7 +831,7 @@ struct MediaPreview: View {
             } else if let thumbnail = thumbnailImage {
                 // Video thumbnail with play button overlay
                 let displaySize = calculateDisplaySize(for: thumbnail.size)
-                
+
                 ZStack {
                     Image(uiImage: thumbnail)
                         .resizable()
@@ -822,12 +839,12 @@ struct MediaPreview: View {
                         .frame(width: displaySize.width, height: displaySize.height)
                         .clipped()
                         .cornerRadius(12)
-                    
+
                     // Play button overlay
                     Circle()
                         .fill(Color.black.opacity(0.5))
                         .frame(width: 60, height: 60)
-                    
+
                     Image(systemName: "play.fill")
                         .font(.system(size: 24))
                         .foregroundColor(.white)
@@ -862,10 +879,66 @@ struct MediaPreview: View {
             }
         }
         .task {
+            // Load from cache FIRST - synchronously and immediately
+            let mediaDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Media", isDirectory: true)
+            let localPath = mediaDirectory.appendingPathComponent("\(media.id)")
+
+            print("🔍 TASK: Checking for media \(media.id) at: \(localPath.path)")
+            print("📊 TASK: Media directory exists: \(FileManager.default.fileExists(atPath: mediaDirectory.path))")
+            print("📊 TASK: Media file exists: \(FileManager.default.fileExists(atPath: localPath.path))")
+
+            if FileManager.default.fileExists(atPath: localPath.path) {
+                print("📸 TASK: Found cached media at: \(localPath.path)")
+                if let data = try? Data(contentsOf: localPath) {
+                    print("✅ TASK: Loaded \(data.count) bytes from cache for media \(media.id)")
+                    print("🎨 TASK: Media type - isImage: \(media.isImage), isVideo: \(media.isVideo)")
+                    if media.isImage {
+                        imageData = data
+                        print("✅ TASK: Set imageData for media \(media.id)")
+                    } else if media.isVideo {
+                        thumbnailImage = await generateThumbnail(from: data)
+                        print("✅ TASK: Generated thumbnail for media \(media.id)")
+                    }
+                    return // Done - cached media loaded
+                } else {
+                    print("❌ TASK: Failed to load data from cached file for media \(media.id)")
+                }
+            } else {
+                print("⚠️ TASK: Media \(media.id) NOT cached at: \(localPath.path)")
+                // List contents of media directory to debug
+                if let contents = try? FileManager.default.contentsOfDirectory(atPath: mediaDirectory.path) {
+                    print("📂 TASK: Media directory contains \(contents.count) files: \(contents.prefix(10))")
+                }
+            }
+
+            // Not cached, load from server (may download)
+            print("⬇️ TASK: Media not cached, attempting download for media \(media.id)")
             if media.isImage {
                 await loadImage()
             } else if media.isVideo {
                 await loadVideoThumbnail()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .mediaDidDownload)) { notification in
+            if let downloadedMediaId = notification.userInfo?["mediaId"] as? Int,
+               downloadedMediaId == media.id {
+                // This media was just downloaded, retry loading it
+                print("🔔 NOTIFICATION: Media \(media.id) downloaded, loading from cache")
+                let mediaDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("Media", isDirectory: true)
+                let localPath = mediaDirectory.appendingPathComponent("\(media.id)")
+
+                if FileManager.default.fileExists(atPath: localPath.path),
+                   let data = try? Data(contentsOf: localPath) {
+                    if media.isImage {
+                        imageData = data
+                    } else if media.isVideo {
+                        Task {
+                            thumbnailImage = await generateThumbnail(from: data)
+                        }
+                    }
+                }
             }
         }
     }
@@ -899,46 +972,53 @@ struct MediaPreview: View {
     }
 
     private func loadImage() async {
-        // Check for preloaded media first
-        if let cachedData = MessagePreloader.shared.getCachedMedia(for: media.id) {
-            print("📦 Using preloaded image for ID: \(media.id)")
-            imageData = cachedData
+        // Try to load from cache first (synchronous check - much faster)
+        let mediaDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Media", isDirectory: true)
+        let localPath = mediaDirectory.appendingPathComponent("\(media.id)")
+
+        if FileManager.default.fileExists(atPath: localPath.path),
+           let data = try? Data(contentsOf: localPath) {
+            // Load from local cache instantly
+            imageData = data
             return
         }
-        
+
+        // Not in cache, show loading and download
         isLoading = true
         do {
-            let data = try await apiService.downloadMedia(mediaId: media.id)
+            let data = try await MediaStorageManager.shared.getMediaData(mediaId: media.id)
             imageData = data
-            // Update preloader cache
-            MessagePreloader.shared.updateMediaCache(mediaId: media.id, data: data)
         } catch {
             print("Failed to load image: \(error)")
         }
         isLoading = false
     }
-    
+
     private func loadVideoThumbnail() async {
-        // Check for preloaded media first
-        if let cachedData = MessagePreloader.shared.getCachedMedia(for: media.id) {
-            print("📦 Using preloaded video for thumbnail ID: \(media.id)")
-            thumbnailImage = await generateThumbnail(from: cachedData)
+        // Try to load from cache first (synchronous check - much faster)
+        let mediaDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Media", isDirectory: true)
+        let localPath = mediaDirectory.appendingPathComponent("\(media.id)")
+
+        if FileManager.default.fileExists(atPath: localPath.path),
+           let data = try? Data(contentsOf: localPath) {
+            // Load from local cache and generate thumbnail instantly
+            thumbnailImage = await generateThumbnail(from: data)
             return
         }
-        
+
+        // Not in cache, show loading and download
         isLoading = true
         do {
-            let videoData = try await apiService.downloadMedia(mediaId: media.id)
-            // Update preloader cache
-            MessagePreloader.shared.updateMediaCache(mediaId: media.id, data: videoData)
-            // Generate thumbnail from video data
+            let videoData = try await MediaStorageManager.shared.getMediaData(mediaId: media.id)
             thumbnailImage = await generateThumbnail(from: videoData)
         } catch {
             print("Failed to load video thumbnail: \(error)")
         }
         isLoading = false
     }
-    
+
     private func generateThumbnail(from videoData: Data) async -> UIImage? {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("thumb_\(media.id).mp4")
         do {
@@ -968,6 +1048,7 @@ struct EnlargedMediaPreview: View {
     @State private var imageData: Data?
     @State private var thumbnailImage: UIImage?
     @State private var isLoading = false
+    @State private var retryTrigger = 0
 
     var body: some View {
         Group {
@@ -1032,10 +1113,51 @@ struct EnlargedMediaPreview: View {
             }
         }
         .task {
+            // Load from cache FIRST - synchronously and immediately
+            let mediaDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Media", isDirectory: true)
+            let localPath = mediaDirectory.appendingPathComponent("\(media.id)")
+
+            if FileManager.default.fileExists(atPath: localPath.path) {
+                print("📸 ENLARGED-TASK: Found cached media at: \(localPath.path)")
+                if let data = try? Data(contentsOf: localPath) {
+                    print("✅ ENLARGED-TASK: Loaded \(data.count) bytes from cache for media \(media.id)")
+                    if media.isImage {
+                        imageData = data
+                    } else if media.isVideo {
+                        thumbnailImage = await generateThumbnail(from: data)
+                    }
+                    return // Done - cached media loaded
+                }
+            }
+
+            // Not cached, load from server (may download)
+            print("⬇️ ENLARGED-TASK: Media not cached, downloading media \(media.id)")
             if media.isImage {
                 await loadImage()
             } else if media.isVideo {
                 await loadVideoThumbnail()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .mediaDidDownload)) { notification in
+            if let downloadedMediaId = notification.userInfo?["mediaId"] as? Int,
+               downloadedMediaId == media.id {
+                // This media was just downloaded, retry loading it
+                print("🔔 ENLARGED-NOTIF: Media \(media.id) downloaded, loading from cache")
+                let mediaDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("Media", isDirectory: true)
+                let localPath = mediaDirectory.appendingPathComponent("\(media.id)")
+
+                if FileManager.default.fileExists(atPath: localPath.path),
+                   let data = try? Data(contentsOf: localPath) {
+                    if media.isImage {
+                        imageData = data
+                    } else if media.isVideo {
+                        Task {
+                            thumbnailImage = await generateThumbnail(from: data)
+                        }
+                    }
+                }
             }
         }
     }
@@ -1069,45 +1191,53 @@ struct EnlargedMediaPreview: View {
     }
 
     private func loadImage() async {
-        // Check for preloaded media first
-        if let cachedData = MessagePreloader.shared.getCachedMedia(for: media.id) {
-            print("📦 Using preloaded image for enlarged ID: \(media.id)")
-            imageData = cachedData
+        // Try to load from cache first (synchronous check - much faster)
+        let mediaDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Media", isDirectory: true)
+        let localPath = mediaDirectory.appendingPathComponent("\(media.id)")
+
+        if FileManager.default.fileExists(atPath: localPath.path),
+           let data = try? Data(contentsOf: localPath) {
+            // Load from local cache instantly
+            imageData = data
             return
         }
-        
+
+        // Not in cache, show loading and download
         isLoading = true
         do {
-            let data = try await apiService.downloadMedia(mediaId: media.id)
+            let data = try await MediaStorageManager.shared.getMediaData(mediaId: media.id)
             imageData = data
-            // Update preloader cache
-            MessagePreloader.shared.updateMediaCache(mediaId: media.id, data: data)
         } catch {
             print("Failed to load image: \(error)")
         }
         isLoading = false
     }
-    
+
     private func loadVideoThumbnail() async {
-        // Check for preloaded media first
-        if let cachedData = MessagePreloader.shared.getCachedMedia(for: media.id) {
-            print("📦 Using preloaded video for enlarged thumbnail ID: \(media.id)")
-            thumbnailImage = await generateThumbnail(from: cachedData)
+        // Try to load from cache first (synchronous check - much faster)
+        let mediaDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Media", isDirectory: true)
+        let localPath = mediaDirectory.appendingPathComponent("\(media.id)")
+
+        if FileManager.default.fileExists(atPath: localPath.path),
+           let data = try? Data(contentsOf: localPath) {
+            // Load from local cache and generate thumbnail instantly
+            thumbnailImage = await generateThumbnail(from: data)
             return
         }
-        
+
+        // Not in cache, show loading and download
         isLoading = true
         do {
-            let videoData = try await apiService.downloadMedia(mediaId: media.id)
-            // Update preloader cache
-            MessagePreloader.shared.updateMediaCache(mediaId: media.id, data: videoData)
+            let videoData = try await MediaStorageManager.shared.getMediaData(mediaId: media.id)
             thumbnailImage = await generateThumbnail(from: videoData)
         } catch {
             print("Failed to load video thumbnail: \(error)")
         }
         isLoading = false
     }
-    
+
     private func generateThumbnail(from videoData: Data) async -> UIImage? {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("thumb_enlarged_\(media.id).mp4")
         do {
@@ -1267,16 +1397,7 @@ struct AudioPlayerView: View {
         
         Task {
             do {
-                // Check for preloaded media first
-                let audioData: Data
-                if let cachedData = MessagePreloader.shared.getCachedMedia(for: media.id) {
-                    print("📦 Using preloaded audio for ID: \(media.id)")
-                    audioData = cachedData
-                } else {
-                    audioData = try await apiService.downloadMedia(mediaId: media.id)
-                    // Update preloader cache
-                    MessagePreloader.shared.updateMediaCache(mediaId: media.id, data: audioData)
-                }
+                let audioData = try await MediaStorageManager.shared.getMediaData(mediaId: media.id)
                 
                 // Save to temp file for AVAudioPlayer
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("audio_\(media.id).m4a")
@@ -1721,16 +1842,7 @@ struct MessageDetailOverlay: View {
     private func openInQuickLook(media: MediaAsset) {
         Task {
             do {
-                // Check for preloaded media first
-                let mediaData: Data
-                if let cachedData = MessagePreloader.shared.getCachedMedia(for: media.id) {
-                    print("📦 Using preloaded media for QuickLook detail ID: \(media.id)")
-                    mediaData = cachedData
-                } else {
-                    mediaData = try await apiService.downloadMedia(mediaId: media.id)
-                    // Update preloader cache
-                    MessagePreloader.shared.updateMediaCache(mediaId: media.id, data: mediaData)
-                }
+                let mediaData = try await MediaStorageManager.shared.getMediaData(mediaId: media.id)
                 
                 // Determine proper file extension
                 let fileExtension: String

@@ -12,7 +12,8 @@ struct ConversationListView: View {
     @EnvironmentObject var apiService: APIService
     @EnvironmentObject var deepLinkManager: DeepLinkManager
     @StateObject private var contactsManager = ContactsManager.shared
-    @StateObject private var messagePreloader = MessagePreloader.shared
+    @StateObject private var dataRepository = DataRepository.shared
+    @StateObject private var syncManager = SyncManager.shared
     @State private var conversations: [Conversation] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -21,10 +22,10 @@ struct ConversationListView: View {
     @State private var showContactPicker = false
     @State private var selectedConversationForContact: Conversation?
     @AppStorage("pinnedConversationIds") private var pinnedConversationIdsData: Data = Data()
-    
+
     // Navigation state for deep links
     @State private var navigationPath = NavigationPath()
-    
+
     // Search state
     @State private var isSearchActive = false
     @State private var searchResults: [SearchResultMessage] = []
@@ -223,14 +224,23 @@ struct ConversationListView: View {
                         }
                     }
                     .refreshable {
-                        await loadConversations()
+                        await syncConversationsInBackground()
                     }
                 }
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { showSettings = true }) {
-                        Image(systemName: "gear")
+                    HStack(spacing: 12) {
+                        Button(action: { showSettings = true }) {
+                            Image(systemName: "gear")
+                        }
+
+                        // Offline indicator
+                        if !dataRepository.isOnline {
+                            Image(systemName: "wifi.slash")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+                        }
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -238,10 +248,20 @@ struct ConversationListView: View {
                         Button(action: { isSearchActive = true }) {
                             Image(systemName: "magnifyingglass")
                         }
-                        Button(action: { Task { await loadConversations() } }) {
-                            Image(systemName: "arrow.clockwise")
+                        Button(action: {
+                            Task {
+                                await syncManager.performManualSync(downloadMedia: true)
+                                await loadConversations()
+                            }
+                        }) {
+                            if syncManager.isSyncing {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
                         }
-                        .disabled(isLoading)
+                        .disabled(syncManager.isSyncing)
                     }
                 }
             }
@@ -261,12 +281,19 @@ struct ConversationListView: View {
                 }
             }
             .task {
-                await loadConversations()
+                // Load from local storage immediately (offline-first)
+                await loadConversationsFromLocal()
+
                 // Request contacts access and fetch contacts
                 if contactsManager.authorizationStatus == .notDetermined {
                     _ = await contactsManager.requestAccess()
                 } else if contactsManager.authorizationStatus == .authorized {
                     await contactsManager.fetchContacts()
+                }
+
+                // Sync with server in background (non-blocking)
+                Task.detached(priority: .background) {
+                    await self.syncConversationsInBackground()
                 }
             }
             .onChange(of: deepLinkManager.pendingConversationId) { _, conversationId in
@@ -310,18 +337,26 @@ struct ConversationListView: View {
         }
     }
 
+    private func loadConversationsFromLocal() async {
+        // Load from local storage immediately without showing loading state
+        do {
+            let localConversations = try await dataRepository.fetchConversations(forceRefresh: false)
+            if !localConversations.isEmpty {
+                conversations = localConversations
+                print("📦 Loaded \(localConversations.count) conversations from local storage")
+            }
+        } catch {
+            print("⚠️ Failed to load conversations from local storage: \(error)")
+        }
+    }
+
     private func loadConversations() async {
         isLoading = true
         errorMessage = nil
 
         do {
-            let response = try await apiService.getConversations(limit: 100, offset: 0, excludeAds: true)
-            conversations = response.conversations
-            
-            // Preload messages for top conversations in background
-            Task.detached(priority: .background) {
-                await MessagePreloader.shared.preloadTopConversations(response.conversations, using: apiService)
-            }
+            // Force refresh from server
+            conversations = try await dataRepository.fetchConversations(forceRefresh: true)
         } catch let error as APIError {
             errorMessage = error.message
         } catch {
@@ -329,6 +364,21 @@ struct ConversationListView: View {
         }
 
         isLoading = false
+    }
+
+    private func syncConversationsInBackground() async {
+        // Silently sync with server without showing loading state
+        do {
+            let freshConversations = try await dataRepository.fetchConversations(forceRefresh: true)
+            // Only update if we got fresh data
+            if !freshConversations.isEmpty {
+                conversations = freshConversations
+                print("🔄 Background sync completed: \(freshConversations.count) conversations")
+            }
+        } catch {
+            print("⚠️ Background sync failed: \(error)")
+            // Don't show error to user - they already have cached data
+        }
     }
     
     private func performSearch(query: String) async {

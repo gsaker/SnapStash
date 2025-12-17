@@ -90,6 +90,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         UNUserNotificationCenter.current().delegate = self
         registerNotificationCategories()
 
+        // Register background tasks for sync
+        SyncManager.shared.registerBackgroundTasks()
+        SyncManager.shared.scheduleBackgroundSync()
+
         return true
     }
 

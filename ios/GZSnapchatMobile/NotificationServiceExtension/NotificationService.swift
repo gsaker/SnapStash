@@ -2,13 +2,20 @@ import UserNotifications
 import UniformTypeIdentifiers
 import Intents
 import UIKit
+import CoreData
+import os.log
 
 class NotificationService: UNNotificationServiceExtension {
 
     var contentHandler: ((UNNotificationContent) -> Void)?
     var bestAttemptContent: UNMutableNotificationContent?
 
+    // Use os_log for better logging in extensions
+    private let log = OSLog(subsystem: "com.georgesaker147.snapstash.NotificationServiceExtension", category: "MessageFetch")
+
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        os_log("📬 NotificationService didReceive called", log: log, type: .default)
+
         self.contentHandler = contentHandler
         bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
 
@@ -19,7 +26,21 @@ class NotificationService: UNNotificationServiceExtension {
 
         let userInfo = request.content.userInfo
         let userInfoKeys = userInfo.keys.map { "\($0)" }.sorted()
-        print("📬 NotificationService didReceive. keys=\(userInfoKeys)")
+        os_log("📬 NotificationService keys: %{public}@", log: log, type: .default, userInfoKeys.joined(separator: ", "))
+
+        // Debug: Print full notification payload
+        os_log("📦 Full notification payload:", log: log, type: .default)
+        for (key, value) in userInfo {
+            os_log("  - %{public}@: %{public}@", log: log, type: .default, String(describing: key), String(describing: value))
+        }
+
+        // Check for conversation_id
+        if let conversationId = userInfo["conversation_id"] as? String {
+            os_log("✅ Found conversation_id in payload: %{public}@", log: log, type: .default, conversationId)
+        } else {
+            os_log("⚠️ WARNING: No conversation_id found in notification payload!", log: log, type: .error)
+            os_log("⚠️ Available keys: %{public}@", log: log, type: .error, userInfoKeys.joined(separator: ", "))
+        }
 
         // Collect potential attachment URLs from the payload
         let imageUrlString: String? = {
@@ -214,7 +235,16 @@ class NotificationService: UNNotificationServiceExtension {
                 }
             }()
 
+            // Deliver the notification
             contentHandler(finalContent)
+
+            // Then start background message fetch (keeps extension alive a bit longer)
+            if let conversationId = userInfo["conversation_id"] as? String {
+                os_log("📥 Starting background message fetch for conversation: %{public}@", log: self.log, type: .default, conversationId)
+                self.fetchAndCacheMessages(for: conversationId) {
+                    os_log("📥 Background message fetch completed", log: self.log, type: .default)
+                }
+            }
         }
     }
 
@@ -441,5 +471,220 @@ class NotificationService: UNNotificationServiceExtension {
             context.cgContext.setLineWidth(strokeWidth)
             context.cgContext.strokeEllipse(in: strokeRect)
         }
+    }
+
+    // MARK: - Background Message Fetching
+
+    private func fetchAndCacheMessages(for conversationId: String, completion: @escaping () -> Void) {
+        os_log("🔍 fetchAndCacheMessages called for conversation: %{public}@", log: log, type: .default, conversationId)
+
+        // Check App Group access
+        let sharedDefaults = UserDefaults(suiteName: "group.com.georgesaker147.snapstash")
+        os_log("🔍 App Group UserDefaults accessible: %{public}@", log: log, type: .default, sharedDefaults != nil ? "YES" : "NO")
+
+        // Get API base URL from shared UserDefaults
+        guard let apiBaseURL = sharedDefaults?.string(forKey: "apiBaseURL") else {
+            os_log("⚠️ No API base URL found in shared UserDefaults", log: log, type: .error)
+            os_log("⚠️ This means either:", log: log, type: .error)
+            os_log("   1. App Group is not configured correctly", log: log, type: .error)
+            os_log("   2. API URL was never saved by the main app", log: log, type: .error)
+            completion()
+            return
+        }
+
+        os_log("📡 Fetching messages from: %{public}@", log: log, type: .default, apiBaseURL)
+
+        // Construct API URL for messages
+        guard let url = URL(string: "\(apiBaseURL)/api/messages?conversation_id=\(conversationId)&limit=50&offset=0") else {
+            os_log("❌ Invalid API URL", log: log, type: .error)
+            completion()
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15 // Shorter timeout for background fetch
+
+        // Fetch messages from API
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            defer { completion() }
+
+            if let error = error {
+                os_log("❌ Failed to fetch messages: %{public}@", log: self.log, type: .error, error.localizedDescription)
+                return
+            }
+
+            guard let data = data,
+                  let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                os_log("❌ Invalid response or status code", log: self.log, type: .error)
+                return
+            }
+
+            // Parse JSON response
+            do {
+                // Log raw response for debugging
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    os_log("📄 Raw JSON response (first 500 chars): %{public}@", log: self.log, type: .default, String(jsonString.prefix(500)))
+                }
+
+                let decoder = JSONDecoder()
+                let response = try decoder.decode(BackgroundMessagesResponse.self, from: data)
+                os_log("✅ Fetched %d messages for conversation %{public}@", log: self.log, type: .default, response.messages.count, conversationId)
+
+                // Save messages to Core Data (synchronously within this completion)
+                if !response.messages.isEmpty {
+                    self.saveMessagesToCache(response.messages, conversationId: conversationId)
+                } else {
+                    os_log("⚠️ API returned 0 messages", log: self.log, type: .default)
+                }
+            } catch {
+                os_log("❌ Failed to decode messages: %{public}@", log: self.log, type: .error, error.localizedDescription)
+                // Log more detailed error info
+                if let decodingError = error as? DecodingError {
+                    switch decodingError {
+                    case .keyNotFound(let key, let context):
+                        os_log("❌ Missing key: %{public}@ at path: %{public}@", log: self.log, type: .error, key.stringValue, context.codingPath.map { $0.stringValue }.joined(separator: "."))
+                    case .typeMismatch(let type, let context):
+                        os_log("❌ Type mismatch for type: %{public}@ at path: %{public}@", log: self.log, type: .error, String(describing: type), context.codingPath.map { $0.stringValue }.joined(separator: "."))
+                    case .valueNotFound(let type, let context):
+                        os_log("❌ Value not found for type: %{public}@ at path: %{public}@", log: self.log, type: .error, String(describing: type), context.codingPath.map { $0.stringValue }.joined(separator: "."))
+                    case .dataCorrupted(let context):
+                        os_log("❌ Data corrupted at path: %{public}@", log: self.log, type: .error, context.codingPath.map { $0.stringValue }.joined(separator: "."))
+                    @unknown default:
+                        os_log("❌ Unknown decoding error", log: self.log, type: .error)
+                    }
+                }
+            }
+        }.resume()
+    }
+
+    private func saveMessagesToCache(_ messages: [BackgroundMessage], conversationId: String) {
+        os_log("💾 saveMessagesToCache called with %d messages", log: log, type: .default, messages.count)
+
+        // Access Core Data through shared App Group storage
+        let coreDataStack = CoreDataStack.shared
+        os_log("💾 CoreDataStack instance created", log: log, type: .default)
+
+        let context = coreDataStack.newBackgroundContext()
+        os_log("💾 Background context created", log: log, type: .default)
+
+        // Use semaphore to wait for Core Data save to complete
+        let semaphore = DispatchSemaphore(value: 0)
+
+        context.perform {
+            defer { semaphore.signal() }
+
+            var savedCount = 0
+            for message in messages {
+                let fetchRequest: NSFetchRequest<MessageEntity> = MessageEntity.fetchRequest()
+                fetchRequest.predicate = NSPredicate(format: "id == %lld", message.id)
+                fetchRequest.fetchLimit = 1
+
+                do {
+                    let results = try context.fetch(fetchRequest)
+                    let entity = results.first ?? MessageEntity(context: context)
+
+                    // Only save if it's a new message
+                    if results.isEmpty {
+                        entity.id = Int64(message.id)
+                        entity.conversationId = conversationId
+                        entity.text = message.text
+                        entity.contentType = Int32(message.contentType)
+                        entity.creationTimestamp = message.creationTimestamp
+                        entity.senderId = message.senderId
+                        entity.mediaAssetId = message.mediaAssetId.map { Int64($0) } ?? 0
+
+                        // Save media asset metadata if present (but don't download the file)
+                        if let mediaAsset = message.mediaAsset {
+                            let mediaEntity = self.saveMediaAsset(mediaAsset, in: context)
+                            entity.mediaAsset = mediaEntity
+                        }
+
+                        savedCount += 1
+                    }
+                } catch {
+                    os_log("❌ Failed to check/save message %lld: %{public}@", log: self.log, type: .error, message.id, error.localizedDescription)
+                }
+            }
+
+            // Save context
+            if context.hasChanges {
+                do {
+                    try context.save()
+                    os_log("✅ Cached %d new messages for conversation %{public}@", log: self.log, type: .default, savedCount, conversationId)
+                } catch {
+                    os_log("❌ Failed to save messages to cache: %{public}@", log: self.log, type: .error, error.localizedDescription)
+                }
+            } else {
+                os_log("💾 No new messages to save (all already cached)", log: self.log, type: .default)
+            }
+        }
+
+        // Wait for Core Data operations to complete (with timeout)
+        _ = semaphore.wait(timeout: .now() + 10)
+        os_log("💾 Core Data save completed", log: log, type: .default)
+    }
+
+    private func saveMediaAsset(_ mediaAsset: BackgroundMediaAsset, in context: NSManagedObjectContext) -> MediaEntity? {
+        let fetchRequest: NSFetchRequest<MediaEntity> = MediaEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %lld", mediaAsset.id)
+        fetchRequest.fetchLimit = 1
+
+        do {
+            let results = try context.fetch(fetchRequest)
+            let entity = results.first ?? MediaEntity(context: context)
+
+            entity.id = Int64(mediaAsset.id)
+            entity.fileType = mediaAsset.fileType
+            entity.mimeType = mediaAsset.mimeType
+            entity.fileSize = Int64(mediaAsset.fileSize ?? 0)
+
+            return entity
+        } catch {
+            os_log("❌ Failed to save media asset %d: %{public}@", log: self.log, type: .error, mediaAsset.id, error.localizedDescription)
+            return nil
+        }
+    }
+
+}
+
+// MARK: - Background Fetch Models
+
+private struct BackgroundMessagesResponse: Decodable {
+    let messages: [BackgroundMessage]
+}
+
+private struct BackgroundMessage: Decodable {
+    let id: Int
+    let text: String?
+    let contentType: Int
+    let creationTimestamp: Int64
+    let senderId: String
+    let conversationId: String
+    let mediaAssetId: Int?
+    let mediaAsset: BackgroundMediaAsset?
+
+    enum CodingKeys: String, CodingKey {
+        case id, text
+        case contentType = "content_type"
+        case creationTimestamp = "creation_timestamp"
+        case senderId = "sender_id"
+        case conversationId = "conversation_id"
+        case mediaAssetId = "media_asset_id"
+        case mediaAsset = "media_asset"
+    }
+}
+
+private struct BackgroundMediaAsset: Decodable {
+    let id: Int
+    let fileType: String?
+    let mimeType: String?
+    let fileSize: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case fileType = "file_type"
+        case mimeType = "mime_type"
+        case fileSize = "file_size"
     }
 }
