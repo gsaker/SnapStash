@@ -8,6 +8,7 @@ services:
       - "./data:/app/data"
     environment:
       - DATABASE_URL=sqlite:///data/snapstash.db
+      - API_KEY=${API_KEY:-your-secret-api-key-change-me}
 
   frontend:
     container_name: snapstash-frontend

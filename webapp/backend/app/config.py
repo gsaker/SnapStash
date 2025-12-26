@@ -99,6 +99,10 @@ class Settings(BaseSettings):
         default=8067,
         description="API server port"
     )
+    api_key: Optional[str] = Field(
+        default=None,
+        description="API key for authentication (external requests only)"
+    )
     cors_origins: List[str] = Field(
         default=["http://localhost:3067"],
         description="Allowed CORS origins"
@@ -196,6 +200,9 @@ class Settings(BaseSettings):
             },
             "cors_origins": {
                 "env": ["CORS_ORIGINS"]
+            },
+            "api_key": {
+                "env": ["API_KEY", "BACKEND_API_KEY"]
             }
         }
 

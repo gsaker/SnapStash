@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings, get_ingest_config
 from .init_db import init_database
 from .services.ingest_loop import get_ingest_loop_service
+from .middleware.auth import APIKeyAuthMiddleware
 from .api import health, ingest, messages, media, conversations, users, stats, scheduler, search
 from .api import settings as settings_api
 from .api import devices as devices_api
@@ -82,6 +83,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add API key authentication middleware
+# This must be added AFTER CORS middleware to ensure CORS headers are set
+app.add_middleware(APIKeyAuthMiddleware)
 
 # Include routers
 app.include_router(health.router)

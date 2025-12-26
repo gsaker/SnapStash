@@ -1,4 +1,5 @@
 .next
+.claude
 generated
 data
 webapp/data
@@ -8,3 +9,4 @@ node_modules
 .DS_Store
 migrate_old_data.py
 tmp
+webapp/.env
