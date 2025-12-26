@@ -28,19 +28,23 @@ class DataProcessorService:
         self,
         messages: List[Dict[str, Any]],
         media_assets: List[Dict[str, Any]],
-        ingest_run_id: Optional[int] = None
+        ingest_run_id: Optional[int] = None,
+        newly_copied_media: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Process results from unified parser and store in database
-        
+
         Args:
             messages: List of message dictionaries from parser
             media_assets: List of media asset dictionaries from parser
             ingest_run_id: Optional ingest run ID to link results to
-        
+            newly_copied_media: List of media assets that were newly copied (not pre-existing)
+
         Returns:
             Dictionary with processing results and statistics
         """
+        if newly_copied_media is None:
+            newly_copied_media = []
         try:
             results = {
                 "users_processed": 0,
@@ -222,6 +226,20 @@ class DataProcessorService:
                 self.db.rollback()
                 results["errors"].append(f"Failed to commit data: {e}")
 
+            # Build index of newly copied media by cache_id and cache_key for quick lookup
+            newly_copied_cache_ids = set()
+            newly_copied_cache_keys = set()
+            for media in newly_copied_media:
+                if media.get("cache_id"):
+                    newly_copied_cache_ids.add(media["cache_id"])
+                if media.get("cache_key"):
+                    newly_copied_cache_keys.add(media["cache_key"])
+
+            logger.info(f"Newly copied media: {len(newly_copied_media)} files ({len(newly_copied_cache_ids)} cache_ids, {len(newly_copied_cache_keys)} cache_keys)")
+
+            # Track which messages we've notified in this cycle to avoid duplicates
+            notified_message_ids = set()
+
             # Send individual notifications for newly created messages
             if len(new_messages_data) > 0:
                 try:
@@ -258,58 +276,81 @@ class DataProcessorService:
                                             sender_id=msg_data.get("sender_id"),
                                         )
                                     )
+                                    # Track that we notified this message
+                                    if msg_data.get("server_message_id"):
+                                        notified_message_ids.add(msg_data["server_message_id"])
                             elif content_type == 0 or content_type == 2:  # Media or mixed
                                 # Get media information if available
                                 media_asset = msg_data.get("media_asset")
                                 if media_asset:
-                                    media_type = media_asset.get("file_type", "media")
-                                    media_id = media_asset.get("id") or msg_data.get("media_asset_id") or 0
-                                    try:
-                                        media_id = int(media_id)
-                                    except (TypeError, ValueError):
-                                        media_id = 0
+                                    # Check if media is available (either newly copied OR already exists with file path)
+                                    media_cache_id = media_asset.get("cache_id")
+                                    media_cache_key = media_asset.get("cache_key")
                                     file_path = media_asset.get("file_path", "")
-                                    logger.info(
-                                        "Message media detected: conversation_id=%s content_type=%s media_id=%s media_type=%s file_path=%s media_asset_keys=%s",
-                                        conversation_id,
-                                        content_type,
-                                        media_id,
-                                        media_type,
-                                        file_path,
-                                        sorted(list(media_asset.keys())),
-                                    )
 
-                                    # Prepare message text
-                                    if text:
-                                        message_text = text
+                                    # Media is available if it has a file path (new or pre-existing)
+                                    # We only send notifications for new messages, so this is safe
+                                    is_media_available = bool(file_path)
+
+                                    if is_media_available:
+                                        # Media is confirmed available, send rich media notification
+                                        media_type = media_asset.get("file_type", "media")
+                                        media_id = media_asset.get("id") or msg_data.get("media_asset_id") or 0
+                                        try:
+                                            media_id = int(media_id)
+                                        except (TypeError, ValueError):
+                                            media_id = 0
+                                        # file_path already extracted above
+                                        logger.info(
+                                            "New media available for notification: conversation_id=%s content_type=%s media_id=%s media_type=%s file_path=%s cache_id=%s cache_key=%s",
+                                            conversation_id,
+                                            content_type,
+                                            media_id,
+                                            media_type,
+                                            file_path,
+                                            media_cache_id,
+                                            media_cache_key,
+                                        )
+
+                                        # Prepare message text
+                                        if text:
+                                            message_text = text
+                                        else:
+                                            message_text = f"Sent a {media_type}"
+
+                                        asyncio.create_task(
+                                            notification_service.send_media_message_notification(
+                                                sender_username=sender,
+                                                media_type=media_type,
+                                                media_id=media_id,
+                                                text=message_text,
+                                                file_path=file_path if file_path else None,
+                                                conversation_id=conversation_id,
+                                                sender_id=msg_data.get("sender_id"),
+                                            )
+                                        )
+                                        # Track that we notified this message
+                                        server_msg_id = msg_data.get("server_message_id")
+                                        if server_msg_id:
+                                            notified_message_ids.add(server_msg_id)
+                                            logger.info(f"Tracked notification for message: server_message_id={server_msg_id} (type={type(server_msg_id).__name__})")
+                                        else:
+                                            logger.warning(f"Message has no server_message_id, cannot track: conversation_id={conversation_id}")
                                     else:
-                                        message_text = f"Sent a {media_type}"
-
-                                    asyncio.create_task(
-                                        notification_service.send_media_message_notification(
-                                            sender_username=sender,
-                                            media_type=media_type,
-                                            media_id=media_id,
-                                            text=message_text,
-                                            file_path=file_path if file_path else None,
-                                            conversation_id=conversation_id,
-                                            sender_id=msg_data.get("sender_id"),
+                                        # Media not yet available (will be sent when media arrives in next cycle)
+                                        logger.info(
+                                            "Media message detected but media not yet available - skipping notification until media arrives: conversation_id=%s cache_id=%s cache_key=%s",
+                                            conversation_id,
+                                            media_cache_id,
+                                            media_cache_key,
                                         )
-                                    )
                                 else:
-                                    # Media message but no asset info, send text notification
-                                    message_text = text if text else "Sent media"
+                                    # Media message but no asset info - skip notification
+                                    # It will be sent when the media becomes available
                                     logger.info(
-                                        "Message media detected but missing media_asset: conversation_id=%s content_type=%s",
+                                        "Media message detected but missing media_asset - skipping notification until media arrives: conversation_id=%s content_type=%s",
                                         conversation_id,
                                         content_type,
-                                    )
-                                    asyncio.create_task(
-                                        notification_service.send_text_message_notification(
-                                            sender_username=sender,
-                                            text=message_text,
-                                            conversation_id=conversation_id
-                                        )
                                     )
 
                         except Exception as e:
@@ -317,6 +358,93 @@ class DataProcessorService:
 
                 except Exception as e:
                     logger.warning(f"Failed to initialize notification service: {e}")
+
+            # Check if any newly copied media matches existing messages that haven't been notified yet
+            # This handles the case where a message appeared in a previous cycle but media arrives now
+            if len(newly_copied_media) > 0:
+                try:
+                    notification_service = get_notification_service(self.db)
+                    logger.info(f"Checking {len(newly_copied_media)} newly copied media files for pending message notifications")
+
+                    for media in newly_copied_media:
+                        try:
+                            # Find recent messages (within last 24 hours) that reference this media
+                            media_cache_id = media.get("cache_id")
+                            media_cache_key = media.get("cache_key")
+
+                            if not media_cache_id and not media_cache_key:
+                                continue
+
+                            # Query for recent messages with this media that we haven't processed yet
+                            recent_messages = self.storage.find_recent_messages_by_media(
+                                cache_id=media_cache_id,
+                                cache_key=media_cache_key,
+                                hours=24
+                            )
+
+                            for msg in recent_messages:
+                                # Skip if this message was already notified in this cycle
+                                # Normalize to int for comparison (parser dict uses int, db model uses str)
+                                try:
+                                    msg_id_normalized = int(msg.server_message_id) if msg.server_message_id else None
+                                except (ValueError, TypeError):
+                                    msg_id_normalized = msg.server_message_id
+
+                                logger.info(f"Checking message {msg.server_message_id} (normalized={msg_id_normalized}) against notified_message_ids")
+                                if msg_id_normalized and msg_id_normalized in notified_message_ids:
+                                    logger.info(f"Skipping message {msg.server_message_id} - already notified in this cycle")
+                                    continue
+
+                                # Skip ad conversations
+                                if msg.conversation_id and self.storage.is_conversation_ad(msg.conversation_id):
+                                    continue
+
+                                # Get sender information
+                                sender = msg.sender
+                                sender_username = sender.username if sender else "Unknown"
+                                display_name = sender.display_name if sender else ""
+                                sender_display = display_name if display_name else sender_username
+
+                                # Prepare notification - get media info from the message's media_asset
+                                # The message was already linked to the media asset in the database
+                                media_asset_obj = msg.media_asset
+                                if not media_asset_obj:
+                                    logger.warning(f"Message {msg.id} found for media but has no media_asset linked")
+                                    continue
+
+                                media_type = media_asset_obj.file_type or "media"
+                                media_id = media_asset_obj.id
+                                text = msg.text if msg.text else f"Sent a {media_type}"
+
+                                logger.info(
+                                    "Found pending message for newly arrived media: message_id=%s conversation_id=%s media_id=%s cache_id=%s cache_key=%s",
+                                    msg.id,
+                                    msg.conversation_id,
+                                    media_id,
+                                    media_cache_id,
+                                    media_cache_key,
+                                )
+
+                                asyncio.create_task(
+                                    notification_service.send_media_message_notification(
+                                        sender_username=sender_display,
+                                        media_type=media_type,
+                                        media_id=media_id,
+                                        text=text,
+                                        file_path=media_asset_obj.file_path,
+                                        conversation_id=msg.conversation_id,
+                                        sender_id=msg.sender_id,
+                                    )
+                                )
+                                # Track that we notified this message
+                                if msg.server_message_id:
+                                    notified_message_ids.add(msg.server_message_id)
+
+                        except Exception as e:
+                            logger.warning(f"Failed to process pending notification for media: {e}")
+
+                except Exception as e:
+                    logger.warning(f"Failed to check pending media notifications: {e}")
 
             logger.info(f"Processing completed: {results}")
             return results

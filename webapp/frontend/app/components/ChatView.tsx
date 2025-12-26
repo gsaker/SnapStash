@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, MoreVertical, Users, MessageCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, MoreVertical, Users, MessageCircle, RefreshCw, Download, X } from 'lucide-react';
 import { Conversation, Message, MessagesResponse, ConversationWithMessages } from '../types/api';
 import { api } from '../utils/api';
 import { getInitials, formatTimestamp } from '../utils/helpers';
@@ -23,6 +23,12 @@ export default function ChatView({ conversation, onBack, currentUserId, isMobile
   const [conversationDetails, setConversationDetails] = useState<ConversationWithMessages | null>(null);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [offset, setOffset] = useState(0);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportStartDate, setExportStartDate] = useState('');
+  const [exportEndDate, setExportEndDate] = useState('');
+  const [includeMedia, setIncludeMedia] = useState(true);
+  const [simplifiedFormat, setSimplifiedFormat] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const prevScrollHeightRef = useRef<number>(0);
@@ -231,6 +237,66 @@ export default function ChatView({ conversation, onBack, currentUserId, isMobile
     fetchConversationData(true);
   };
 
+  const handleExport = async () => {
+    if (!conversation) return;
+
+    try {
+      setExporting(true);
+
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (exportStartDate) {
+        params.append('since', new Date(exportStartDate).toISOString());
+      }
+      if (exportEndDate) {
+        params.append('until', new Date(exportEndDate).toISOString());
+      }
+      if (!simplifiedFormat) {
+        params.append('include_media', includeMedia.toString());
+      }
+      params.append('simplified', simplifiedFormat.toString());
+
+      // Fetch the export data
+      const response = await fetch(`/api/messages/export/${conversation.id}?${params.toString()}`);
+
+      if (!response.ok) {
+        throw new Error('Failed to export conversation');
+      }
+
+      // Get the JSON data
+      const data = await response.json();
+
+      // Create a blob and download it
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+
+      // Generate filename
+      const dateSuffix = exportStartDate || exportEndDate
+        ? `_${exportStartDate || 'beginning'}_to_${exportEndDate || 'now'}`
+        : '';
+      a.download = `chat_export_${conversation.id}${dateSuffix}.json`;
+
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      // Close modal and reset
+      setShowExportModal(false);
+      setExportStartDate('');
+      setExportEndDate('');
+      setIncludeMedia(true);
+      setSimplifiedFormat(false);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export conversation. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (!conversation) {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-800">
@@ -395,6 +461,14 @@ export default function ChatView({ conversation, onBack, currentUserId, isMobile
 
         <div className="flex items-center space-x-2">
           <button
+            onClick={() => setShowExportModal(true)}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            title="Export conversation"
+          >
+            <Download className="w-5 h-5 text-gray-900 dark:text-gray-100" />
+          </button>
+
+          <button
             onClick={handleRefresh}
             disabled={loading}
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
@@ -495,6 +569,168 @@ export default function ChatView({ conversation, onBack, currentUserId, isMobile
           </p>
         </div>
       </div>
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Export Conversation
+              </h3>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+              >
+                <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Export all messages from this conversation as a JSON file.
+              </p>
+
+              {/* Date Range Section */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Date Range (Optional)
+                </label>
+
+                <div>
+                  <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={exportStartDate}
+                    onChange={(e) => setExportStartDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={exportEndDate}
+                    onChange={(e) => setExportEndDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  />
+                </div>
+
+                {exportStartDate || exportEndDate ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {exportStartDate && exportEndDate
+                      ? `Exporting messages from ${exportStartDate} to ${exportEndDate}`
+                      : exportStartDate
+                      ? `Exporting messages from ${exportStartDate} onwards`
+                      : `Exporting messages up to ${exportEndDate}`}
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Leave empty to export all messages
+                  </p>
+                )}
+              </div>
+
+              {/* Export Format Options */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Export Format
+                </label>
+
+                {/* Simplified Format Radio */}
+                <div className="flex items-start">
+                  <input
+                    type="radio"
+                    id="simplifiedFormat"
+                    name="exportFormat"
+                    checked={simplifiedFormat}
+                    onChange={() => setSimplifiedFormat(true)}
+                    className="mt-1 h-4 w-4 text-yellow-500 focus:ring-yellow-500 border-gray-300 dark:border-gray-600"
+                  />
+                  <label htmlFor="simplifiedFormat" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                    Simplified (Compact)
+                    <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Only text, timestamps, and sender IDs. Participant info listed once at the top.
+                    </span>
+                  </label>
+                </div>
+
+                {/* Full Format Radio */}
+                <div className="flex items-start">
+                  <input
+                    type="radio"
+                    id="fullFormat"
+                    name="exportFormat"
+                    checked={!simplifiedFormat}
+                    onChange={() => setSimplifiedFormat(false)}
+                    className="mt-1 h-4 w-4 text-yellow-500 focus:ring-yellow-500 border-gray-300 dark:border-gray-600"
+                  />
+                  <label htmlFor="fullFormat" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                    Full (Complete)
+                    <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      All message metadata, IDs, parsing info, and sender details on each message.
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Include Media Checkbox - Only show for full format */}
+              {!simplifiedFormat && (
+                <div className="flex items-start">
+                  <input
+                    type="checkbox"
+                    id="includeMedia"
+                    checked={includeMedia}
+                    onChange={(e) => setIncludeMedia(e.target.checked)}
+                    className="mt-1 h-4 w-4 text-yellow-500 focus:ring-yellow-500 border-gray-300 dark:border-gray-600 rounded"
+                  />
+                  <label htmlFor="includeMedia" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                    Include media asset details
+                    <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Include file paths, hashes, and metadata for images, videos, and audio
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setShowExportModal(false)}
+                disabled={exporting}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 hover:bg-yellow-600 rounded-lg disabled:opacity-50 flex items-center space-x-2"
+              >
+                {exporting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <span>Exporting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    <span>Export</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

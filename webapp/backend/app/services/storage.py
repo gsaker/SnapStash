@@ -406,7 +406,7 @@ class StorageService:
     ) -> List[Message]:
         """Get messages from a specific sender"""
         from sqlalchemy.orm import joinedload
-        
+
         return (self.db.query(Message)
                 .options(joinedload(Message.sender), joinedload(Message.media_asset))
                 .filter(Message.sender_id == sender_id)
@@ -414,7 +414,54 @@ class StorageService:
                 .offset(offset)
                 .limit(limit)
                 .all())
-    
+
+    def find_recent_messages_by_media(
+        self,
+        cache_id: Optional[str] = None,
+        cache_key: Optional[str] = None,
+        hours: int = 24
+    ) -> List[Message]:
+        """
+        Find recent messages that reference specific media by cache_id or cache_key.
+        Used to match newly arrived media with messages that were received earlier.
+
+        Args:
+            cache_id: Media cache_id to search for
+            cache_key: Media cache_key to search for
+            hours: How many hours back to search (default 24)
+
+        Returns:
+            List of messages with matching media references
+        """
+        from sqlalchemy.orm import joinedload
+        from datetime import timedelta
+
+        if not cache_id and not cache_key:
+            return []
+
+        # Calculate cutoff timestamp (hours ago)
+        cutoff_timestamp = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp() * 1000)
+
+        # Build query to find messages via their media_asset relationship
+        query = (
+            self.db.query(Message)
+            .join(MediaAsset, Message.media_asset_id == MediaAsset.id)
+            .options(joinedload(Message.sender), joinedload(Message.media_asset))
+            .filter(Message.creation_timestamp >= cutoff_timestamp)
+        )
+
+        # Filter by cache_id or cache_key
+        conditions = []
+        if cache_id:
+            conditions.append(MediaAsset.cache_id == cache_id)
+        if cache_key:
+            conditions.append(MediaAsset.cache_key == cache_key)
+
+        if conditions:
+            query = query.filter(or_(*conditions))
+
+        return query.order_by(desc(Message.creation_timestamp)).all()
+
     def get_message_stats(self) -> Dict[str, Any]:
         """Get message statistics"""
         total_messages = self.db.query(func.count(Message.id)).scalar()

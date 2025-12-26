@@ -172,17 +172,18 @@ class IngestionService:
                 logger.info(f"📊 Processing results: {len(messages)} messages, {len(media_assets)} media assets")
                 
                 # Step 5: Copy media files to permanent storage BEFORE processing
+                newly_copied_media = []
                 if media_assets and extract_media:
                     logger.info(f"📂 Copying {len(media_assets)} media files to permanent storage...")
-                    media_assets = self._copy_media_to_permanent_storage(extract_dir, media_assets, run_id)
+                    media_assets, newly_copied_media = self._copy_media_to_permanent_storage(extract_dir, media_assets, run_id)
                     logger.info(f"📂 Successfully prepared {len(media_assets)} media files for storage")
-                    
+
                     # Step 5.5: Update media asset file paths in messages after copying
                     self._update_message_media_paths(messages, media_assets)
-                
+
                 # Step 6: Process and store results
                 processor = DataProcessorService(self.db_session)
-                processor_results = processor.process_parser_results(messages, media_assets, run_id)
+                processor_results = processor.process_parser_results(messages, media_assets, run_id, newly_copied_media)
                 logger.info(f"📊 Processor results: {processor_results}")
                 
                 # Step 6.5: Process and store conversation data (only if we have valid data)
@@ -238,27 +239,30 @@ class IngestionService:
             self.db_session.commit()
             raise
     
-    def _copy_media_to_permanent_storage(self, temp_dir: str, media_assets: List[Dict], run_id: int) -> List[Dict]:
+    def _copy_media_to_permanent_storage(self, temp_dir: str, media_assets: List[Dict], run_id: int) -> tuple[List[Dict], List[Dict]]:
         """
         Copy media files from temporary directory to permanent storage, avoiding duplicates by filename.
-        
+
         Args:
             temp_dir: Temporary directory containing extracted media files
             media_assets: List of media asset dictionaries with file paths and metadata
             run_id: The ingestion run ID (for logging purposes)
-            
+
         Returns:
-            Updated list of media assets with permanent storage paths
+            Tuple of (updated_media_assets, newly_copied_media):
+            - updated_media_assets: All media assets with permanent storage paths
+            - newly_copied_media: Only media assets that were newly copied (not pre-existing)
         """
         settings = get_settings()
         permanent_dir = Path(settings.media_storage_path)
         permanent_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Use shared storage instead of run-specific folders to avoid duplicates
         shared_storage_dir = permanent_dir / "shared"
         shared_storage_dir.mkdir(exist_ok=True)
-        
+
         updated_media_assets = []
+        newly_copied_media = []  # Track only new files
         
         for media_asset in media_assets:
             temp_file_path = Path(temp_dir) / media_asset['file_path']
@@ -317,26 +321,27 @@ class IngestionService:
                 # Copy the file to permanent storage
                 shutil.copy2(temp_file_path, permanent_file_path)
                 logger.debug(f"Copied new media file: {temp_file_path} -> {permanent_file_path}")
-                
+
                 # Update the media asset with permanent path (relative to app root)
                 updated_media_asset = media_asset.copy()
                 # Use relative path from the parent of the parent of media_storage_path (typically /app)
                 app_root = Path(settings.media_storage_path).parent.parent
                 updated_media_asset['file_path'] = str(permanent_file_path.relative_to(app_root))
-                
+
                 # IMPORTANT: Update original_filename to match the actual stored filename
                 # This ensures database consistency with the filesystem
                 updated_media_asset['original_filename'] = permanent_filename.split('.')[0]  # Remove extension to match database format
                 logger.debug(f"Updated original_filename from '{media_asset.get('original_filename')}' to '{updated_media_asset['original_filename']}' to match stored file")
-                
+
                 updated_media_assets.append(updated_media_asset)
-                
+                newly_copied_media.append(updated_media_asset)  # Track as newly copied
+
             except Exception as e:
                 logger.error(f"Failed to copy media file {temp_file_path}: {e}")
                 continue
-        
-        logger.info(f"Successfully processed {len(updated_media_assets)} media files (some may have been reused from existing storage)")
-        return updated_media_assets
+
+        logger.info(f"Successfully processed {len(updated_media_assets)} media files ({len(newly_copied_media)} newly copied, {len(updated_media_assets) - len(newly_copied_media)} reused from existing storage)")
+        return updated_media_assets, newly_copied_media
     
     def _update_message_media_paths(self, messages: List[Dict], updated_media_assets: List[Dict]) -> None:
         """

@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -218,3 +219,161 @@ async def repair_broken_text_messages(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to repair messages: {str(e)}")
+
+
+@router.get("/export/{conversation_id}")
+async def export_conversation(
+    conversation_id: str,
+    since: Optional[datetime] = Query(None, description="Export messages after this timestamp"),
+    until: Optional[datetime] = Query(None, description="Export messages before this timestamp"),
+    include_media: bool = Query(True, description="Include media asset details in export"),
+    simplified: bool = Query(False, description="Export in simplified format (just text and timestamps)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Export all messages from a conversation as JSON with optional date range filtering.
+
+    Query Parameters:
+    - since: Optional start date (ISO 8601 format, e.g., 2024-01-01T00:00:00)
+    - until: Optional end date (ISO 8601 format, e.g., 2024-12-31T23:59:59)
+    - include_media: Whether to include media asset details (default: true)
+    - simplified: Export in simplified format with minimal data (default: false)
+
+    Returns:
+    JSON file containing conversation metadata and all messages.
+    """
+    storage_service = StorageService(db)
+
+    # Get conversation details
+    conversation = storage_service.get_conversation_by_id(conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Convert datetime parameters to milliseconds if provided
+    since_ms = int(since.timestamp() * 1000) if since else None
+    until_ms = int(until.timestamp() * 1000) if until else None
+
+    # Get all messages without pagination limits
+    messages = storage_service.get_messages_by_conversation(
+        conversation_id=conversation_id,
+        since_timestamp=since_ms,
+        until_timestamp=until_ms,
+        limit=100000  # Large limit to get all messages
+    )
+
+    # Get conversation participants (returns list of tuples: (User, dict))
+    participants = storage_service.get_conversation_participants(conversation_id)
+
+    # Build export data based on format
+    if simplified:
+        # Simplified format: minimal data, text and timestamps only
+        export_data = {
+            "conversation": {
+                "id": conversation.id,
+                "name": conversation.group_name,
+                "is_group_chat": conversation.is_group_chat,
+                "exported_at": datetime.utcnow().isoformat(),
+                "message_count": len(messages)
+            },
+            "participants": {
+                user.id: {
+                    "username": user.username,
+                    "display_name": decode_html_entities(user.display_name)
+                }
+                for user, info in participants
+            },
+            "messages": [
+                {
+                    "timestamp": datetime.fromtimestamp(msg.creation_timestamp / 1000).isoformat() if msg.creation_timestamp else None,
+                    "sender_id": msg.sender_id,
+                    "text": msg.text,
+                    "has_media": msg.media_asset_id is not None
+                }
+                for msg in messages
+            ]
+        }
+    else:
+        # Full format: complete data with all metadata
+        export_data = {
+            "export_metadata": {
+                "conversation_id": conversation_id,
+                "exported_at": datetime.utcnow().isoformat(),
+                "date_range": {
+                    "since": since.isoformat() if since else None,
+                    "until": until.isoformat() if until else None
+                },
+                "message_count": len(messages)
+            },
+            "conversation": {
+                "id": conversation.id,
+                "group_name": conversation.group_name,
+                "is_group_chat": conversation.is_group_chat,
+                "participant_count": conversation.participant_count,
+                "created_at": conversation.created_at.isoformat() if conversation.created_at else None,
+                "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None,
+                "last_message_at": conversation.last_message_at.isoformat() if conversation.last_message_at else None
+            },
+            "participants": [
+                {
+                    "id": user.id,
+                    "username": user.username,
+                    "display_name": decode_html_entities(user.display_name),
+                    "bitmoji_url": user.bitmoji_url,
+                    "message_count": info.get("message_count", 0)
+                }
+                for user, info in participants
+            ],
+            "messages": [
+                {
+                    "id": msg.id,
+                    "server_message_id": msg.server_message_id,
+                    "client_message_id": msg.client_message_id,
+                    "text": msg.text,
+                    "content_type": msg.content_type,
+                    "creation_timestamp": msg.creation_timestamp,
+                    "creation_datetime": datetime.fromtimestamp(msg.creation_timestamp / 1000).isoformat() if msg.creation_timestamp else None,
+                    "read_timestamp": msg.read_timestamp,
+                    "read_datetime": datetime.fromtimestamp(msg.read_timestamp / 1000).isoformat() if msg.read_timestamp else None,
+                    "sender_id": msg.sender_id,
+                    "cache_id": msg.cache_id,
+                    "parsing_successful": msg.parsing_successful,
+                    "sender": {
+                        "id": msg.sender.id,
+                        "username": msg.sender.username,
+                        "display_name": decode_html_entities(msg.sender.display_name),
+                        "bitmoji_url": msg.sender.bitmoji_url
+                    } if msg.sender else None,
+                    "media_asset": {
+                        "id": msg.media_asset.id,
+                        "original_filename": msg.media_asset.original_filename,
+                        "file_path": msg.media_asset.file_path,
+                        "file_hash": msg.media_asset.file_hash,
+                        "file_size": msg.media_asset.file_size,
+                        "file_type": msg.media_asset.file_type,
+                        "mime_type": msg.media_asset.mime_type,
+                        "cache_key": msg.media_asset.cache_key,
+                        "cache_id": msg.media_asset.cache_id,
+                        "category": msg.media_asset.category,
+                        "timestamp_source": msg.media_asset.timestamp_source,
+                        "file_timestamp": msg.media_asset.file_timestamp.isoformat() if msg.media_asset.file_timestamp else None
+                    } if (include_media and msg.media_asset) else None
+                }
+                for msg in messages
+            ]
+        }
+
+    # Generate filename
+    date_suffix = ""
+    if since or until:
+        since_str = since.strftime("%Y%m%d") if since else "beginning"
+        until_str = until.strftime("%Y%m%d") if until else "now"
+        date_suffix = f"_{since_str}_to_{until_str}"
+
+    filename = f"chat_export_{conversation_id}{date_suffix}.json"
+
+    return JSONResponse(
+        content=export_data,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
